@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Vanta</string>
+    <string name="app_drawer">APPS</string>
+    <string name="focus">FOCUS</string>
+    <string name="settings">SETTINGS</string>
+    <string name="tagline">A CLEAN, POWERFUL LAUNCHER THAT BLENDS PRODUCTIVITY</string>
+    <string name="caption_discipline">DISCIPLINE BUILDS FREEDOM.</string>
+    <string name="callout_make_shit">MAKE SHIT HAPPEN.</string>
+    <string name="callout_less_scrolling">LESS SCROLLING MORE DOING.</string>
+    <string name="callout_capture">CAPTURE EVERYTHING</string>
+    <string name="developer">DEVELOPED BY @FTWSOURAV · GITHUB</string>
+    <string name="version_label">Vanta v%1$s</string>
+</resources>
