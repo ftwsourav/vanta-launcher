@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <rect width="512" height="512" fill="#0a0a0a"/>
+  <rect x="72" y="72" width="160" height="160" fill="#fafafa"/>
+  <rect x="280" y="72" width="160" height="160" fill="#fafafa"/>
+  <rect x="176" y="232" width="160" height="160" fill="#fafafa"/>
+  <rect x="72" y="392" width="368" height="48" fill="#FF6F00"/>
+  <text x="256" y="316" text-anchor="middle" font-family="Arial, sans-serif" font-weight="900" font-size="80" fill="#0a0a0a">V</text>
+</svg>

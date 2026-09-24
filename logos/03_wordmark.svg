@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="200" viewBox="0 0 512 200">
+  <rect width="512" height="200" fill="#0a0a0a"/>
+  <text x="256" y="120" text-anchor="middle" font-family="Courier New, monospace" font-weight="900" font-size="96" fill="#fafafa" letter-spacing="12">VANTA</text>
+  <rect x="56" y="148" width="400" height="8" fill="#FF6F00"/>
+</svg>
