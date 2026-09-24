@@ -23,6 +23,7 @@ import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
@@ -42,6 +43,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.BasicTextField
@@ -268,15 +273,6 @@ fun DrawerScreen(viewModel: StandardAppViewModel, onOpenSettings: () -> Unit) {
         buildMap { entries.forEachIndexed { i, e -> if (e is Entry.Letter) put(e.letter, prefix + i) } }
     }
     val letters = remember(letterIndex) { letterIndex.keys.toList() }
-    val currentLetter by remember(letterIndex) {
-        derivedStateOf {
-            val first = listState.firstVisibleItemIndex
-            letterIndex.entries.lastOrNull { it.value <= first }?.key
-        }
-    }
-    val jumpTo: (String) -> Unit = { letter ->
-        letterIndex[letter]?.let { index -> scope.launch { listState.scrollToItem(index) } }
-    }
     val launch: (AppItem) -> Unit = {
         val current = usageCountPrefs.getInt(it.packageName, 0)
         usageCountPrefs.edit().putInt(it.packageName, current + 1).apply()
@@ -298,7 +294,7 @@ fun DrawerScreen(viewModel: StandardAppViewModel, onOpenSettings: () -> Unit) {
         pinNotice = "HIDDEN " + app.label.uppercase()
     }
 
-    Box(
+    BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
             .pointerInput(hapticsOn) {
@@ -328,6 +324,26 @@ fun DrawerScreen(viewModel: StandardAppViewModel, onOpenSettings: () -> Unit) {
                 }
             }
     ) {
+        val gridColumns = when {
+            maxWidth < 600.dp -> 1
+            maxWidth < 900.dp -> 2
+            maxWidth < 1200.dp -> 3
+            else -> 4
+        }
+        val gridState = rememberLazyGridState()
+        val currentLetter by remember(letterIndex, gridColumns) {
+            derivedStateOf {
+                val first = if (gridColumns >= 2) gridState.firstVisibleItemIndex else listState.firstVisibleItemIndex
+                letterIndex.entries.lastOrNull { it.value <= first }?.key
+            }
+        }
+        val jumpTo: (String) -> Unit = { letter ->
+            letterIndex[letter]?.let { index ->
+                scope.launch {
+                    if (gridColumns >= 2) gridState.scrollToItem(index) else listState.scrollToItem(index)
+                }
+            }
+        }
         Column(modifier = Modifier.fillMaxSize()) {
             SearchField(
                 query = searchQuery,
@@ -337,109 +353,219 @@ fun DrawerScreen(viewModel: StandardAppViewModel, onOpenSettings: () -> Unit) {
                     .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top))
                     .padding(horizontal = PagePadding, vertical = 4.dp)
             )
-            LazyColumn(
-                state = listState,
-                modifier = Modifier.fillMaxWidth().weight(1f),
-                contentPadding = WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom).asPaddingValues(),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                if (showHeader) {
-                    item(key = "top", contentType = "top") {
-                        TopSection(
-                            viewModel = viewModel,
-                            quote = quote,
-                            onLaunch = launch,
-                            onTogglePin = togglePin,
-                            onOpenSettings = onOpenSettings,
-                            modifier = Modifier.padding(horizontal = PagePadding, vertical = 8.dp)
-                        )
+            if (gridColumns >= 2) {
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(gridColumns),
+                    state = gridState,
+                    modifier = Modifier.fillMaxWidth().weight(1f),
+                    contentPadding = WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom).asPaddingValues(),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    if (showHeader) {
+                        item(key = "top", contentType = "top", span = { GridItemSpan(maxLineSpan) }) {
+                            TopSection(
+                                viewModel = viewModel,
+                                quote = quote,
+                                onLaunch = launch,
+                                onTogglePin = togglePin,
+                                onOpenSettings = onOpenSettings,
+                                modifier = Modifier.padding(horizontal = PagePadding, vertical = 8.dp)
+                            )
+                        }
                     }
-                }
-                if (mostUsedVisible) {
-                    item(key = "mostUsed", contentType = "mostUsed") {
-                        MostUsedRow(
-                            apps = mostUsedItems,
-                            onLaunch = launch,
-                            onTogglePin = togglePin,
+                    if (mostUsedVisible) {
+                        item(key = "mostUsed", contentType = "mostUsed", span = { GridItemSpan(maxLineSpan) }) {
+                            MostUsedRow(
+                                apps = mostUsedItems,
+                                onLaunch = launch,
+                                onTogglePin = togglePin,
+                                modifier = Modifier.padding(horizontal = PagePadding, vertical = 6.dp)
+                            )
+                        }
+                    }
+                    if (recentsVisible) {
+                        item(key = "recents", contentType = "recents", span = { GridItemSpan(maxLineSpan) }) {
+                            RecentlyUsedRow(
+                                apps = recents,
+                                onLaunch = launch,
+                                onTogglePin = togglePin,
+                                modifier = Modifier.padding(horizontal = PagePadding, vertical = 6.dp)
+                            )
+                        }
+                    }
+                    item(key = "all", contentType = "label", span = { GridItemSpan(maxLineSpan) }) {
+                        SectionLabel(
+                            when {
+                                !showHeader -> "RESULTS"
+                                sortMode == "mostUsed" -> "MOST USED"
+                                else -> "ALL APPS"
+                            },
                             modifier = Modifier.padding(horizontal = PagePadding, vertical = 6.dp)
                         )
                     }
-                }
-                if (recentsVisible) {
-                    item(key = "recents", contentType = "recents") {
-                        RecentlyUsedRow(
-                            apps = recents,
-                            onLaunch = launch,
-                            onTogglePin = togglePin,
-                            modifier = Modifier.padding(horizontal = PagePadding, vertical = 6.dp)
-                        )
-                    }
-                }
-                item(key = "all", contentType = "label") {
-                    SectionLabel(
-                        when {
-                            !showHeader -> "RESULTS"
-                            sortMode == "mostUsed" -> "MOST USED"
-                            else -> "ALL APPS"
-                        },
-                        modifier = Modifier.padding(horizontal = PagePadding, vertical = 6.dp)
-                    )
-                }
-                if (entries.isEmpty()) {
-                    item(key = "empty", contentType = "label") {
-                        HeadlineText(
-                            if (showHeader) "NO APPS" else "NO RESULTS",
-                            28.sp,
-                            color = colors.muted,
-                            modifier = Modifier.padding(PagePadding)
-                        )
-                    }
-                }
-                entries.forEach { entry ->
-                    when (entry) {
-                        is Entry.Letter -> item(key = entry.key, contentType = Entry.Letter::class) {
+                    if (entries.isEmpty()) {
+                        item(key = "empty", contentType = "label", span = { GridItemSpan(maxLineSpan) }) {
                             HeadlineText(
-                                entry.letter,
+                                if (showHeader) "NO APPS" else "NO RESULTS",
                                 28.sp,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .background(colors.background.copy(alpha = 0.92f))
-                                    .padding(start = PagePadding, top = 12.dp, bottom = 2.dp)
-                            )
-                        }
-                        is Entry.App -> item(key = entry.key, contentType = Entry.App::class) {
-                            NumberedAppRowWithIcon(
-                                index = entry.number,
-                                app = entry.app,
-                                onLaunch = { launch(entry.app) },
-                                onLongPress = { togglePin(entry.app) },
-                                pinned = entry.app.pinned,
-                                menuActions = listOf(
-                                    AppRowMenuAction(if (entry.app.pinned) "UNPIN FROM HOME" else "PIN TO HOME") { togglePin(entry.app) },
-                                    AppRowMenuAction("HIDE APP") { hideApp(entry.app) },
-                                    AppRowMenuAction("APP INFO") {
-                                        val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                                            data = Uri.parse("package:${entry.app.packageName}")
-                                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                        }
-                                        try { context.startActivity(intent) } catch (_: Exception) {}
-                                    }
-                                ),
-                                modifier = Modifier
-                                    .padding(horizontal = PagePadding)
-                                    .appRowSemantics(entry.app, launch, togglePin)
+                                color = colors.muted,
+                                modifier = Modifier.padding(PagePadding)
                             )
                         }
                     }
+                    entries.forEach { entry ->
+                        when (entry) {
+                            is Entry.Letter -> item(key = entry.key, contentType = Entry.Letter::class, span = { GridItemSpan(maxLineSpan) }) {
+                                HeadlineText(
+                                    entry.letter,
+                                    28.sp,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .background(colors.background.copy(alpha = 0.92f))
+                                        .padding(start = PagePadding, top = 12.dp, bottom = 2.dp)
+                                )
+                            }
+                            is Entry.App -> item(key = entry.key, contentType = Entry.App::class) {
+                                NumberedAppRowWithIcon(
+                                    index = entry.number,
+                                    app = entry.app,
+                                    onLaunch = { launch(entry.app) },
+                                    onLongPress = { togglePin(entry.app) },
+                                    pinned = entry.app.pinned,
+                                    menuActions = listOf(
+                                        AppRowMenuAction(if (entry.app.pinned) "UNPIN FROM HOME" else "PIN TO HOME") { togglePin(entry.app) },
+                                        AppRowMenuAction("HIDE APP") { hideApp(entry.app) },
+                                        AppRowMenuAction("APP INFO") {
+                                            val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                                data = Uri.parse("package:${entry.app.packageName}")
+                                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                            }
+                                            try { context.startActivity(intent) } catch (_: Exception) {}
+                                        }
+                                    ),
+                                    modifier = Modifier
+                                        .padding(horizontal = PagePadding)
+                                        .appRowSemantics(entry.app, launch, togglePin)
+                                )
+                            }
+                        }
+                    }
+                    item(key = "settings", contentType = "settings", span = { GridItemSpan(maxLineSpan) }) {
+                        SettingsRow(onOpenSettings, Modifier.padding(horizontal = PagePadding).padding(top = 18.dp))
+                    }
+                    item(key = "footer", contentType = "footer", span = { GridItemSpan(maxLineSpan) }) {
+                        Footer(Modifier.padding(horizontal = PagePadding).padding(bottom = 16.dp))
+                    }
+                    item(key = "appBarSpacer", contentType = "spacer", span = { GridItemSpan(maxLineSpan) }) {
+                        Spacer(Modifier.height(72.dp))
+                    }
                 }
-                item(key = "settings", contentType = "settings") {
-                    SettingsRow(onOpenSettings, Modifier.padding(horizontal = PagePadding).padding(top = 18.dp))
-                }
-                item(key = "footer", contentType = "footer") {
-                    Footer(Modifier.padding(horizontal = PagePadding).padding(bottom = 16.dp))
-                }
-                item(key = "appBarSpacer", contentType = "spacer") {
-                    Spacer(Modifier.height(72.dp))
+            } else {
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxWidth().weight(1f),
+                    contentPadding = WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom).asPaddingValues(),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    if (showHeader) {
+                        item(key = "top", contentType = "top") {
+                            TopSection(
+                                viewModel = viewModel,
+                                quote = quote,
+                                onLaunch = launch,
+                                onTogglePin = togglePin,
+                                onOpenSettings = onOpenSettings,
+                                modifier = Modifier.padding(horizontal = PagePadding, vertical = 8.dp)
+                            )
+                        }
+                    }
+                    if (mostUsedVisible) {
+                        item(key = "mostUsed", contentType = "mostUsed") {
+                            MostUsedRow(
+                                apps = mostUsedItems,
+                                onLaunch = launch,
+                                onTogglePin = togglePin,
+                                modifier = Modifier.padding(horizontal = PagePadding, vertical = 6.dp)
+                            )
+                        }
+                    }
+                    if (recentsVisible) {
+                        item(key = "recents", contentType = "recents") {
+                            RecentlyUsedRow(
+                                apps = recents,
+                                onLaunch = launch,
+                                onTogglePin = togglePin,
+                                modifier = Modifier.padding(horizontal = PagePadding, vertical = 6.dp)
+                            )
+                        }
+                    }
+                    item(key = "all", contentType = "label") {
+                        SectionLabel(
+                            when {
+                                !showHeader -> "RESULTS"
+                                sortMode == "mostUsed" -> "MOST USED"
+                                else -> "ALL APPS"
+                            },
+                            modifier = Modifier.padding(horizontal = PagePadding, vertical = 6.dp)
+                        )
+                    }
+                    if (entries.isEmpty()) {
+                        item(key = "empty", contentType = "label") {
+                            HeadlineText(
+                                if (showHeader) "NO APPS" else "NO RESULTS",
+                                28.sp,
+                                color = colors.muted,
+                                modifier = Modifier.padding(PagePadding)
+                            )
+                        }
+                    }
+                    entries.forEach { entry ->
+                        when (entry) {
+                            is Entry.Letter -> item(key = entry.key, contentType = Entry.Letter::class) {
+                                HeadlineText(
+                                    entry.letter,
+                                    28.sp,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .background(colors.background.copy(alpha = 0.92f))
+                                        .padding(start = PagePadding, top = 12.dp, bottom = 2.dp)
+                                )
+                            }
+                            is Entry.App -> item(key = entry.key, contentType = Entry.App::class) {
+                                NumberedAppRowWithIcon(
+                                    index = entry.number,
+                                    app = entry.app,
+                                    onLaunch = { launch(entry.app) },
+                                    onLongPress = { togglePin(entry.app) },
+                                    pinned = entry.app.pinned,
+                                    menuActions = listOf(
+                                        AppRowMenuAction(if (entry.app.pinned) "UNPIN FROM HOME" else "PIN TO HOME") { togglePin(entry.app) },
+                                        AppRowMenuAction("HIDE APP") { hideApp(entry.app) },
+                                        AppRowMenuAction("APP INFO") {
+                                            val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                                data = Uri.parse("package:${entry.app.packageName}")
+                                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                            }
+                                            try { context.startActivity(intent) } catch (_: Exception) {}
+                                        }
+                                    ),
+                                    modifier = Modifier
+                                        .padding(horizontal = PagePadding)
+                                        .appRowSemantics(entry.app, launch, togglePin)
+                                )
+                            }
+                        }
+                    }
+                    item(key = "settings", contentType = "settings") {
+                        SettingsRow(onOpenSettings, Modifier.padding(horizontal = PagePadding).padding(top = 18.dp))
+                    }
+                    item(key = "footer", contentType = "footer") {
+                        Footer(Modifier.padding(horizontal = PagePadding).padding(bottom = 16.dp))
+                    }
+                    item(key = "appBarSpacer", contentType = "spacer") {
+                        Spacer(Modifier.height(72.dp))
+                    }
                 }
             }
         }
@@ -473,7 +599,7 @@ fun DrawerScreen(viewModel: StandardAppViewModel, onOpenSettings: () -> Unit) {
             letters = letters,
             current = currentLetter,
             onLetter = jumpTo,
-            scrolling = listState.isScrollInProgress,
+            scrolling = if (gridColumns >= 2) gridState.isScrollInProgress else listState.isScrollInProgress,
             modifier = Modifier.align(Alignment.CenterEnd)
         )
 

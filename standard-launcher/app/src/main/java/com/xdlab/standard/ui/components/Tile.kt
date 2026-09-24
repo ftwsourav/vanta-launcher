@@ -69,6 +69,10 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.invisibleToUser
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -347,6 +351,10 @@ fun AppTile(
                 scaleX = 1f + turnstileRotation.value / 180f * 0.2f
             }
             .resizeCorner(editMode, colors.accent)
+            .semantics(mergeDescendants = true) {
+                contentDescription = if (notifCount > 0) "${app.label}, $notifCount notifications" else app.label
+                if (editMode) stateDescription = "Edit mode, long press to drag"
+            }
     ) {
         if (liveActive && liveStarted && flip.value <= 90f) {
             LiveTile(
@@ -387,7 +395,8 @@ fun AppTile(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .size(16.dp)
-                    .background(colors.accent, CircleShape),
+                    .background(colors.accent, CircleShape)
+                    .semantics { invisibleToUser() },
                 contentAlignment = Alignment.Center
             ) {
                 if (notifCount <= 9) {

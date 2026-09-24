@@ -366,7 +366,15 @@ fun HomeScreen(
         if (HomeModule.QUICK_SETTINGS in modules) {
             QuickSettingsFab(
                 modifier = Modifier.fillMaxSize(),
-                onToggleNight = { viewModel.setDarkMode(!settings.darkMode) }
+                onToggleNight = {
+                    val next = when (settings.darkMode) {
+                        com.xdlab.standard.domain.model.DarkMode.AUTO_SYSTEM -> com.xdlab.standard.domain.model.DarkMode.DARK
+                        com.xdlab.standard.domain.model.DarkMode.DARK -> com.xdlab.standard.domain.model.DarkMode.LIGHT
+                        com.xdlab.standard.domain.model.DarkMode.LIGHT -> com.xdlab.standard.domain.model.DarkMode.AUTO_SYSTEM
+                        com.xdlab.standard.domain.model.DarkMode.AUTO_TIME -> com.xdlab.standard.domain.model.DarkMode.DARK
+                    }
+                    viewModel.setDarkMode(next == com.xdlab.standard.domain.model.DarkMode.DARK)
+                }
             )
         }
 

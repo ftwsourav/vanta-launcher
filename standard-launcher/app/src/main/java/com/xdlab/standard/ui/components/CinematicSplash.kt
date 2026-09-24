@@ -10,23 +10,20 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.xdlab.standard.ui.theme.LocalAppTheme
-import com.xdlab.standard.ui.theme.SpaceGrotesk
 import kotlin.random.Random
 
 @Composable
@@ -50,7 +47,7 @@ fun CinematicSplash(
     val phase3Frac = ((timeMs - 550f) / 250f).coerceIn(0f, 1f)
 
     val sScaleIn by animateFloatAsState(
-        targetValue = if (progress.value > 0f) 1f else 0.3f,
+        targetValue = if (progress.value > 0f) 1f else 0.6f,
         animationSpec = spring(dampingRatio = 0.6f, stiffness = Spring.StiffnessMedium),
         label = "sScaleIn"
     )
@@ -136,19 +133,26 @@ fun CinematicSplash(
                 )
             }
         }
-        Text(
-            text = "S.",
-            color = Color.White.copy(alpha = sAlpha),
-            fontFamily = SpaceGrotesk,
-            fontWeight = FontWeight.Black,
-            fontSize = 72.sp,
+        Canvas(
             modifier = Modifier
-                .align(Alignment.Center)
+                .fillMaxSize()
                 .graphicsLayer {
+                    alpha = sAlpha
                     scaleX = sScale
                     scaleY = sScale
                 }
-        )
+        ) {
+            val vPath = Path().apply {
+                moveTo(size.width * 0.35f, size.height * 0.35f)
+                lineTo(size.width * 0.5f, size.height * 0.65f)
+                lineTo(size.width * 0.65f, size.height * 0.35f)
+                lineTo(size.width * 0.58f, size.height * 0.35f)
+                lineTo(size.width * 0.5f, size.height * 0.49f)
+                lineTo(size.width * 0.42f, size.height * 0.35f)
+                close()
+            }
+            drawPath(vPath, color = colors.ink, style = Fill)
+        }
     }
 }
 

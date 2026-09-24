@@ -46,6 +46,38 @@ object RefreshRate {
         }
     }
 
+    fun applyRefreshRateMode(activity: Activity, mode: String) {
+        when (mode) {
+            "AUTO" -> preferHighestRefreshRate(activity)
+            "HZ60" -> setExactHz(activity, 60f)
+            "HZ90" -> setExactHz(activity, 90f)
+            "HZ120" -> setExactHz(activity, 120f)
+            "MAX" -> {
+                preferHighestRefreshRate(activity)
+                request120fps(activity)
+            }
+            else -> preferHighestRefreshRate(activity)
+        }
+    }
+
+    private fun setExactHz(activity: Activity, targetHz: Float) {
+        try {
+            val display = activity.display ?: return
+            val matching = display.supportedModes.filter {
+                it.physicalWidth == display.mode.physicalWidth &&
+                it.physicalHeight == display.mode.physicalHeight &&
+                kotlin.math.abs(it.refreshRate - targetHz) < 1f
+            }.maxByOrNull { it.refreshRate }
+            if (matching != null) {
+                val lp = activity.window.attributes
+                lp.preferredDisplayModeId = matching.modeId
+                activity.window.attributes = lp
+            } else {
+                preferHighestRefreshRate(activity)
+            }
+        } catch (e: Exception) { }
+    }
+
     /** Default tile/flip spring: quick settle with a hint of overshoot. */
     fun springSpec(): SpringSpec<Float> = spring(dampingRatio = 0.78f, stiffness = 560f)
 

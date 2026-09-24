@@ -1,12 +1,15 @@
 package com.xdlab.standard.data.local
 
 import android.content.Context
+import android.content.SharedPreferences
 import com.xdlab.standard.data.repo.SettingsRepository
 import com.xdlab.standard.domain.model.AnimationStyle
 import com.xdlab.standard.domain.model.ClockFormat
+import com.xdlab.standard.domain.model.DarkMode
 import com.xdlab.standard.domain.model.DefaultQuotes
 import com.xdlab.standard.domain.model.HomeModule
 import com.xdlab.standard.domain.model.IconStyle
+import com.xdlab.standard.domain.model.RefreshRateMode
 import com.xdlab.standard.domain.model.WeatherUnit
 import com.xdlab.standard.domain.model.SettingsState
 import com.xdlab.standard.domain.model.WeatherLocation
@@ -20,6 +23,16 @@ class SettingsRepositoryImpl(context: Context) : SettingsRepository {
 
     private val _settings = MutableStateFlow(loadSettings())
     override val settings: StateFlow<SettingsState> = _settings.asStateFlow()
+
+    private val prefsListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        if (key == KEY_DARK_MODE || key == KEY_REFRESH_RATE_MODE) {
+            _settings.value = loadSettings()
+        }
+    }
+
+    init {
+        prefs.registerOnSharedPreferenceChangeListener(prefsListener)
+    }
 
     private fun loadSettings(): SettingsState {
         val defaults = SettingsState()
@@ -37,7 +50,8 @@ class SettingsRepositoryImpl(context: Context) : SettingsRepository {
                 .getOrNull(prefs.getInt(KEY_ICON_STYLE, defaults.iconStyle.ordinal))
                 ?: defaults.iconStyle,
             hapticsEnabled = prefs.getBoolean(KEY_HAPTICS, defaults.hapticsEnabled),
-            darkMode = prefs.getBoolean(KEY_DARK_MODE, defaults.darkMode),
+            darkMode = readDarkMode(),
+            refreshRateMode = readRefreshRateMode(),
             useTexture = prefs.getBoolean(KEY_USE_TEXTURE, defaults.useTexture),
             textureStrength = prefs.getFloat(KEY_TEXTURE_STRENGTH, defaults.textureStrength),
             noiseDrift = prefs.getBoolean(KEY_NOISE_DRIFT, defaults.noiseDrift),
@@ -59,6 +73,22 @@ class SettingsRepositoryImpl(context: Context) : SettingsRepository {
             glanceEnabled = prefs.getBoolean(KEY_GLANCE_ENABLED, defaults.glanceEnabled),
             weatherLocation = WeatherLocation(name, lat, lon)
         )
+    }
+
+    private fun readDarkMode(): DarkMode {
+        if (!prefs.contains(KEY_DARK_MODE)) return DarkMode.AUTO_SYSTEM
+        val stored = runCatching { prefs.getString(KEY_DARK_MODE, null) }.getOrNull()
+        if (stored != null) {
+            return runCatching { DarkMode.valueOf(stored) }.getOrNull() ?: DarkMode.AUTO_SYSTEM
+        }
+        return runCatching { if (prefs.getBoolean(KEY_DARK_MODE, false)) DarkMode.DARK else DarkMode.LIGHT }
+            .getOrNull() ?: DarkMode.AUTO_SYSTEM
+    }
+
+    private fun readRefreshRateMode(): RefreshRateMode {
+        return prefs.getString(KEY_REFRESH_RATE_MODE, null)?.let {
+            runCatching { RefreshRateMode.valueOf(it) }.getOrNull()
+        } ?: RefreshRateMode.AUTO
     }
 
     override suspend fun setWeatherUnit(unit: WeatherUnit) {
@@ -126,8 +156,14 @@ class SettingsRepositoryImpl(context: Context) : SettingsRepository {
     }
 
     override suspend fun setDarkMode(enabled: Boolean) {
-        prefs.edit().putBoolean(KEY_DARK_MODE, enabled).apply()
-        mutate { it.copy(darkMode = enabled) }
+        val mode = if (enabled) DarkMode.DARK else DarkMode.LIGHT
+        prefs.edit().putString(KEY_DARK_MODE, mode.name).apply()
+        mutate { it.copy(darkMode = mode) }
+    }
+
+    suspend fun setRefreshRateMode(mode: RefreshRateMode) {
+        prefs.edit().putString(KEY_REFRESH_RATE_MODE, mode.name).apply()
+        mutate { it.copy(refreshRateMode = mode) }
     }
 
     override suspend fun setUseTexture(enabled: Boolean) {
@@ -181,6 +217,7 @@ class SettingsRepositoryImpl(context: Context) : SettingsRepository {
         const val KEY_ICON_STYLE = "icon_style"
         const val KEY_HAPTICS = "haptics_enabled"
         const val KEY_DARK_MODE = "dark_mode"
+        const val KEY_REFRESH_RATE_MODE = "refresh_rate_mode"
         const val KEY_USE_TEXTURE = "use_texture"
         const val KEY_TEXTURE_STRENGTH = "texture_strength"
         const val KEY_NOISE_DRIFT = "noise_drift"

@@ -53,14 +53,38 @@ fun AppColors(
     val customAccent = prefs.getLong("custom_accent", 0L)
     val dynamicColor = prefs.getBoolean("dynamic_color", false)
 
+    if (dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        val scheme = if (dark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+        val accent: Color
+        val onAccent: Color
+        if (customAccent != 0L) {
+            accent = Color(customAccent)
+            onAccent = if (accent.luminance() > 0.5f) Color.Black else Color.White
+        } else {
+            accent = scheme.primary
+            onAccent = scheme.onPrimary
+        }
+        return AppColors(
+            background = scheme.background,
+            ink = scheme.onBackground,
+            onInk = scheme.background,
+            tile = scheme.surface,
+            onTile = scheme.onSurface,
+            accent = accent,
+            onAccent = onAccent,
+            outline = scheme.outline,
+            filledTiles = surface.filledTiles,
+            isDark = dark,
+            useTexture = useTexture,
+            textureStrength = textureStrength,
+            noiseDrift = noiseDrift
+        )
+    }
+
     val resolvedAccent: Color
     val resolvedOnAccent: Color
 
-    if (dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-        val scheme = if (dark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-        resolvedAccent = scheme.primary
-        resolvedOnAccent = if (resolvedAccent.luminance() > 0.5f) Color.Black else Color.White
-    } else if (customAccent != 0L) {
+    if (customAccent != 0L) {
         resolvedAccent = Color(customAccent)
         resolvedOnAccent = if (resolvedAccent.luminance() > 0.5f) Color.Black else Color.White
     } else {

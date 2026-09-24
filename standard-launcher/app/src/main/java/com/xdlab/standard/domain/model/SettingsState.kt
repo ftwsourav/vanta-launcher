@@ -5,7 +5,8 @@ data class SettingsState(
     val animationStyle: AnimationStyle = AnimationStyle.CUBE,
     val iconStyle: IconStyle = IconStyle.TEXT_ONLY,
     val hapticsEnabled: Boolean = true,
-    val darkMode: Boolean = false,
+    val darkMode: DarkMode = DarkMode.AUTO_SYSTEM,
+    val refreshRateMode: RefreshRateMode = RefreshRateMode.AUTO,
     val useTexture: Boolean = true,
     val textureStrength: Float = 0.10f,
     val noiseDrift: Boolean = true,
@@ -34,3 +35,7 @@ object ThemeId {
     const val ORANGE = "orange"
     val ALL = listOf(MONO, BLUE, RED, GREEN, PURPLE, ORANGE)
 }
+
+enum class DarkMode { AUTO_SYSTEM, AUTO_TIME, LIGHT, DARK }
+
+enum class RefreshRateMode { AUTO, HZ60, HZ90, HZ120, MAX }

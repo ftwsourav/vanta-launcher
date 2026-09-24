@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Vanta</string>
+    <string name="app_drawer">APPS</string>
+    <string name="focus">ENFOQUE</string>
+    <string name="settings">AJUSTES</string>
+    <string name="tagline">UN LANZADOR LIMPIO Y POTENTE QUE COMBINA PRODUCTIVIDAD</string>
+    <string name="caption_discipline">LA DISCIPLINA CONSTRUYE LIBERTAD.</string>
+    <string name="callout_make_shit">HAZ QUE PASE.</string>
+    <string name="callout_less_scrolling">MENOS DESPLAZAMIENTO</string>
+    <string name="callout_capture">CAPTURA TODO</string>
+    <string name="developer">@FTWSOURAV · GITHUB</string>
+    <string name="version_label">Vanta v%1$s</string>
+</resources>

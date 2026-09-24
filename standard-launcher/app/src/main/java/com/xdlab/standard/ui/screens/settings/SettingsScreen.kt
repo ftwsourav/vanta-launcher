@@ -5,6 +5,7 @@ import android.Manifest
 import android.app.role.RoleManager
 import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.location.Geocoder
 import android.location.LocationManager
@@ -76,8 +77,10 @@ import androidx.compose.ui.unit.sp
 import com.xdlab.standard.domain.model.AnimationStyle
 import com.xdlab.standard.domain.model.AppItem
 import com.xdlab.standard.domain.model.ClockFormat
+import com.xdlab.standard.domain.model.DarkMode
 import com.xdlab.standard.domain.model.HomeModule
 import com.xdlab.standard.domain.model.IconStyle
+import com.xdlab.standard.domain.model.RefreshRateMode
 import com.xdlab.standard.domain.model.ThemeId
 import com.xdlab.standard.domain.model.WeatherUnit
 import com.xdlab.standard.ui.components.DriftingNoiseOverlay
@@ -143,6 +146,14 @@ fun SettingsScreen(viewModel: StandardAppViewModel, onClose: () -> Unit) {
     var liveWeather by remember { mutableStateOf(prefs.getBoolean("live_weather", true)) }
     var liveClock by remember { mutableStateOf(prefs.getBoolean("live_clock", true)) }
     var liveBattery by remember { mutableStateOf(prefs.getBoolean("live_battery", true)) }
+    var darkMode by remember { mutableStateOf(readDarkModePref(prefs)) }
+    var refreshRateMode by remember {
+        mutableStateOf(
+            prefs.getString("refresh_rate_mode", null)?.let {
+                runCatching { RefreshRateMode.valueOf(it) }.getOrNull()
+            } ?: RefreshRateMode.AUTO
+        )
+    }
     val hiddenPrefs = remember { context.getSharedPreferences("standard_hidden", Context.MODE_PRIVATE) }
     var hiddenPackages by remember { mutableStateOf<List<String>>(hiddenPrefs.getStringSet("hidden", emptySet())?.toList() ?: emptyList()) }
     var appearanceExpanded by remember { mutableStateOf(true) }
@@ -204,7 +215,18 @@ fun SettingsScreen(viewModel: StandardAppViewModel, onClose: () -> Unit) {
                     selected = settings.themeId,
                     onSelect = { tick(); viewModel.setThemeId(it) }
                 )
-                ToggleRow("DARK MODE", settings.darkMode) { tick(); viewModel.setDarkMode(it) }
+                ValueRow("DARK MODE", darkMode.displayLabel()) {
+                    tick()
+                    val next = darkMode.next()
+                    darkMode = next
+                    prefs.edit().putString("dark_mode", next.name).apply()
+                }
+                ValueRow("REFRESH RATE", refreshRateMode.displayLabel()) {
+                    tick()
+                    val next = refreshRateMode.next()
+                    refreshRateMode = next
+                    prefs.edit().putString("refresh_rate_mode", next.name).apply()
+                }
                 ToggleRow("PAPER GRAIN", settings.useTexture) { tick(); viewModel.setUseTexture(it) }
                 if (settings.useTexture) {
                     val strengthLabel = when {
@@ -682,6 +704,36 @@ private fun AnimationStyle.next(): AnimationStyle = when (this) {
     AnimationStyle.TAP_FLIP -> AnimationStyle.CUBE
     AnimationStyle.CUBE -> AnimationStyle.SMOOTH
     AnimationStyle.SMOOTH -> AnimationStyle.TAP_FLIP
+}
+
+private fun DarkMode.next(): DarkMode = DarkMode.entries[(ordinal + 1) % DarkMode.entries.size]
+
+private fun RefreshRateMode.next(): RefreshRateMode =
+    RefreshRateMode.entries[(ordinal + 1) % RefreshRateMode.entries.size]
+
+private fun DarkMode.displayLabel(): String = when (this) {
+    DarkMode.AUTO_SYSTEM -> "AUTO SYSTEM"
+    DarkMode.AUTO_TIME -> "AUTO TIME"
+    DarkMode.LIGHT -> "LIGHT"
+    DarkMode.DARK -> "DARK"
+}
+
+private fun RefreshRateMode.displayLabel(): String = when (this) {
+    RefreshRateMode.AUTO -> "AUTO"
+    RefreshRateMode.HZ60 -> "60HZ"
+    RefreshRateMode.HZ90 -> "90HZ"
+    RefreshRateMode.HZ120 -> "120HZ"
+    RefreshRateMode.MAX -> "MAX"
+}
+
+private fun readDarkModePref(prefs: SharedPreferences): DarkMode {
+    if (!prefs.contains("dark_mode")) return DarkMode.AUTO_SYSTEM
+    val stored = runCatching { prefs.getString("dark_mode", null) }.getOrNull()
+    if (stored != null) {
+        return runCatching { DarkMode.valueOf(stored) }.getOrNull() ?: DarkMode.AUTO_SYSTEM
+    }
+    return runCatching { if (prefs.getBoolean("dark_mode", false)) DarkMode.DARK else DarkMode.LIGHT }
+        .getOrNull() ?: DarkMode.AUTO_SYSTEM
 }
 
 @Composable

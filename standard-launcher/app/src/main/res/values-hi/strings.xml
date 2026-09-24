@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Vanta</string>
+    <string name="app_drawer">ऐप्स</string>
+    <string name="focus">फोकस</string>
+    <string name="settings">सेटिंग्स</string>
+    <string name="tagline">एक साफ़-सुथरा, शक्तिशाली लॉन्चर जो उत्पादकता को जोड़ता है</string>
+    <string name="caption_discipline">अनुशासन स्वतंत्रता बनाता है।</string>
+    <string name="callout_make_shit">काम करो।</string>
+    <string name="callout_less_scrolling">कम स्क्रॉलिंग</string>
+    <string name="callout_capture">हर चीज़ कैप्चर करो</string>
+    <string name="developer">@FTWSOURAV · GITHUB</string>
+    <string name="version_label">Vanta v%1$s</string>
+</resources>
