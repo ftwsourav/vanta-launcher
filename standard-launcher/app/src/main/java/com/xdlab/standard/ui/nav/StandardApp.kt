@@ -154,23 +154,23 @@ fun StandardApp(viewModel: StandardAppViewModel) {
         label = "headerOffset"
     )
 
-    val edgeSwipeModifier = if (activePage == 0) {
-        Modifier.edgeSwipeHandler(
-            enabled = true,
-            onSwipeOpen = { scope.launch { pagerState.animateScrollToPage(1) } }
-        )
-    } else {
-        Modifier
-    }
+    val edgeSwipeModifier = Modifier.edgeSwipeHandler(
+        enabled = true,
+        onSwipeOpen = {
+            val next = (activePage + 1) % 4
+            if (settings.animationStyle == AnimationStyle.SMOOTH) currentPage = next
+            else scope.launch { pagerState.animateScrollToPage(next) }
+        }
+    )
 
-    val backSwipeModifier = if (activePage == 1) {
-        Modifier.backSwipeHandler(
-            enabled = true,
-            onSwipeBack = { scope.launch { pagerState.animateScrollToPage(0) } }
-        )
-    } else {
-        Modifier
-    }
+    val backSwipeModifier = Modifier.backSwipeHandler(
+        enabled = true,
+        onSwipeBack = {
+            val prev = (activePage + 3) % 4
+            if (settings.animationStyle == AnimationStyle.SMOOTH) currentPage = prev
+            else scope.launch { pagerState.animateScrollToPage(prev) }
+        }
+    )
 
     Box(
         modifier = Modifier

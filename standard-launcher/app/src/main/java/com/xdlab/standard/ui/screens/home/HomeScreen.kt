@@ -109,6 +109,14 @@ import com.xdlab.standard.ui.components.tilePress
 import com.xdlab.standard.ui.nav.StandardAppViewModel
 import com.xdlab.standard.ui.theme.LocalAppTheme
 import com.xdlab.standard.ui.theme.StandardType
+import com.xdlab.standard.ui.theme.SpaceGrotesk
+import com.xdlab.standard.ui.theme.JetBrainsMono
+import com.xdlab.standard.domain.model.MediaInfo
+import androidx.compose.ui.text.TextStyle
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import androidx.compose.runtime.produceState
 import kotlinx.coroutines.delay
 
 private const val COLUMNS = 4
@@ -245,6 +253,11 @@ fun HomeScreen(
                         onSetLocation = onOpenSettings
                     )
                 }
+
+                HomeNowClock(
+                    nowPlaying = nowPlaying,
+                    modifier = Modifier.fillMaxWidth().alpha(contentAlpha)
+                )
 
                 if (pinned.isEmpty()) {
                     Tile(
@@ -492,6 +505,60 @@ private fun DayTile(modifier: Modifier = Modifier) {
             }
         )
     )
+}
+
+@Composable
+private fun HomeNowClock(nowPlaying: MediaInfo?, modifier: Modifier = Modifier) {
+    val colors = LocalAppTheme.current
+    val now by produceState(initialValue = System.currentTimeMillis()) {
+        while (true) {
+            value = System.currentTimeMillis()
+            delay(1000)
+        }
+    }
+    val time = SimpleDateFormat("h:mm", Locale.getDefault()).format(Date(now))
+    val date = SimpleDateFormat("EEEE · MMM d", Locale.getDefault()).format(Date(now)).uppercase(Locale.getDefault())
+    Column(modifier = modifier) {
+        NowPlayingMini(nowPlaying = nowPlaying)
+        Text(
+            text = time,
+            style = TextStyle(fontFamily = SpaceGrotesk, fontWeight = FontWeight.Black, fontSize = 64.sp, letterSpacing = (-0.035f).sp),
+            color = colors.ink,
+            maxLines = 1,
+            softWrap = false
+        )
+        MonoLabel(date, size = 13.sp, color = colors.muted, weight = FontWeight.Bold)
+    }
+}
+
+@Composable
+private fun NowPlayingMini(nowPlaying: MediaInfo?, modifier: Modifier = Modifier) {
+    val colors = LocalAppTheme.current
+    val isPlaying = nowPlaying?.isPlaying == true
+    if (!isPlaying) {
+        Column(modifier = modifier) {
+            MonoLabel("NOTHING PLAYING", size = 9.sp, color = colors.muted, weight = FontWeight.Medium)
+        }
+        return
+    }
+    val title = nowPlaying?.title ?: "TITLE"
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .border(TileDefaults.Border, colors.accent)
+            .padding(horizontal = 12.dp, vertical = 10.dp)
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Box(Modifier.size(10.dp).background(colors.accent))
+            Column {
+                MonoLabel("NOW PLAYING · " + title, size = 11.sp, color = colors.ink, weight = FontWeight.Bold, maxLines = 1)
+                MonoLabel("MUSIC ACTIVE", size = 9.sp, color = colors.muted, weight = FontWeight.Medium)
+            }
+        }
+    }
 }
 
 /** One-line display headline that steps its size down until the word fits the width. */

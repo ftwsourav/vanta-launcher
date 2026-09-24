@@ -1,8 +1,10 @@
 package com.xdlab.standard.ui.screens.live
 
+import android.app.AlarmManager
 import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
+import android.os.BatteryManager
 import android.os.Build
 import android.provider.Settings
 import android.service.notification.StatusBarNotification
@@ -39,8 +41,10 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -55,12 +59,17 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.app.NotificationManagerCompat
 import androidx.lifecycle.compose.LifecycleResumeEffect
+import com.xdlab.standard.StandardApplication
+import com.xdlab.standard.domain.model.MediaInfo
 import com.xdlab.standard.ui.components.AppIcon
 import com.xdlab.standard.ui.components.TileEntrance
 import com.xdlab.standard.ui.theme.JetBrainsMono
 import com.xdlab.standard.ui.theme.LocalAppTheme
 import com.xdlab.standard.ui.theme.SpaceGrotesk
 import kotlinx.coroutines.delay
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 data class NotifItem(
     val packageName: String,
@@ -72,7 +81,11 @@ data class NotifItem(
 )
 
 @Composable
-fun LiveScreen(modifier: Modifier = Modifier) {
+fun LiveScreen(
+    modifier: Modifier = Modifier,
+    onOpenFocus: () -> Unit = {},
+    onOpenSearch: () -> Unit = {}
+) {
     val context = LocalContext.current
     val colors = LocalAppTheme.current
     val haptics = LocalHapticFeedback.current
@@ -123,6 +136,22 @@ fun LiveScreen(modifier: Modifier = Modifier) {
         )
 
         TileEntrance(0) {
+            NowClock()
+        }
+
+        TileEntrance(0) {
+            NowPlaying()
+        }
+
+        TileEntrance(0) {
+            StatusBar()
+        }
+
+        TileEntrance(0) {
+            NextAlarm()
+        }
+
+        TileEntrance(0) {
             WeatherMini()
         }
 
@@ -156,7 +185,7 @@ fun LiveScreen(modifier: Modifier = Modifier) {
 
             if (visible.isEmpty()) {
                 Box(
-                    modifier = Modifier.fillMaxWidth().padding(top = 120.dp),
+                    modifier = Modifier.fillMaxWidth().padding(top = 40.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -175,13 +204,17 @@ fun LiveScreen(modifier: Modifier = Modifier) {
                         )
                         Spacer(Modifier.height(16.dp))
                         Text(
-                            text = "NOTHING NEEDS\nYOUR ATTENTION",
+                            text = "YOUR PIVOTS ARE QUIET",
                             color = colors.ink.copy(alpha = 0.5f),
                             fontFamily = SpaceGrotesk,
                             fontWeight = FontWeight.Black,
                             fontSize = 20.sp,
                             lineHeight = 24.sp
                         )
+                        Spacer(Modifier.height(16.dp))
+                        SuggestTile("VIEW FOCUS MODE", "→", onTap = { haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove); onOpenFocus() })
+                        SuggestTile("SEARCH APPS", "⌕", onTap = { haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove); onOpenSearch() })
+                        SuggestTile("REFRESH WEATHER", "↻", onTap = { haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove); Toast.makeText(context, "WEATHER REFRESHED", Toast.LENGTH_SHORT).show() })
                     }
                 }
             } else {
@@ -243,6 +276,192 @@ fun LiveScreen(modifier: Modifier = Modifier) {
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun NowClock() {
+    val context = LocalContext.current
+    val colors = LocalAppTheme.current
+    val timeFmt = remember { SimpleDateFormat("h:mm", Locale.getDefault()) }
+    val dateFmt = remember { SimpleDateFormat("EEEE · MMM d", Locale.getDefault()) }
+    val now by produceState(initialValue = Date()) {
+        while (true) {
+            value = Date()
+            delay(1000)
+        }
+    }
+    Column {
+        Text(
+            text = timeFmt.format(now).uppercase(),
+            color = colors.ink,
+            fontFamily = SpaceGrotesk,
+            fontWeight = FontWeight.Black,
+            fontSize = 72.sp,
+            lineHeight = 72.sp,
+            letterSpacing = 1.sp,
+            modifier = Modifier.padding(bottom = 2.dp)
+        )
+        Text(
+            text = dateFmt.format(now).uppercase(),
+            color = colors.accent,
+            fontFamily = JetBrainsMono,
+            fontSize = 13.sp,
+            letterSpacing = 1.sp
+        )
+    }
+}
+
+@Composable
+private fun NowPlaying() {
+    val context = LocalContext.current
+    val colors = LocalAppTheme.current
+    val repo = (context.applicationContext as? StandardApplication)?.container?.mediaRepository
+    val flow = repo?.nowPlaying
+    val info by flow?.collectAsState() ?: androidx.compose.runtime.remember { mutableStateOf<MediaInfo?>(null) }
+    val active = info != null
+    val label = if (active) {
+        "NOW PLAYING · ${info?.title?.uppercase()}"
+    } else {
+        "NOTHING PLAYING"
+    }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(1.dp, if (active) colors.accent else colors.ink.copy(alpha = 0.3f))
+            .background(colors.tile)
+            .clickable { if (active) repo?.playPause() else Toast.makeText(context, "NOTHING PLAYING", Toast.LENGTH_SHORT).show() }
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(if (active) 8.dp else 6.dp)
+                .background(if (active) colors.accent else colors.ink.copy(alpha = 0.4f))
+        )
+        Spacer(Modifier.width(8.dp))
+        Text(
+            text = label,
+            color = if (active) colors.ink else colors.ink.copy(alpha = 0.5f),
+            fontFamily = JetBrainsMono,
+            fontWeight = FontWeight.Bold,
+            fontSize = 12.sp,
+            letterSpacing = 0.5.sp,
+            modifier = Modifier.weight(1f, fill = false)
+        )
+    }
+}
+
+@Composable
+private fun StatusBar() {
+    val context = LocalContext.current
+    val colors = LocalAppTheme.current
+    val bm = context.getSystemService(Context.BATTERY_SERVICE) as? BatteryManager
+    val level = bm?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: -1
+    val live = NotificationManagerCompat.getEnabledListenerPackages(context).contains(context.packageName)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(1.dp, colors.ink.copy(alpha = 0.3f))
+            .background(colors.tile)
+            .clickable { Toast.makeText(context, "STATUS", Toast.LENGTH_SHORT).show() }
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = if (level >= 0) "BATTERY $level%" else "BATTERY --",
+            color = colors.ink,
+            fontFamily = JetBrainsMono,
+            fontWeight = FontWeight.Bold,
+            fontSize = 12.sp,
+            letterSpacing = 0.5.sp,
+            modifier = Modifier.weight(1f, fill = false)
+        )
+        Text(
+            text = if (live) "LIVE" else "120HZ",
+            color = if (live) colors.accent else colors.ink.copy(alpha = 0.5f),
+            fontFamily = JetBrainsMono,
+            fontWeight = FontWeight.Bold,
+            fontSize = 12.sp,
+            letterSpacing = 0.5.sp
+        )
+    }
+}
+
+@Composable
+private fun NextAlarm() {
+    val context = LocalContext.current
+    val colors = LocalAppTheme.current
+    val am = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager
+    val next = am?.nextAlarmClock
+    val timeFmt = remember { SimpleDateFormat("h:mm a", Locale.getDefault()) }
+    val label = if (next != null && next.triggerTime > 0) {
+        "NEXT ALARM · ${timeFmt.format(Date(next.triggerTime)).uppercase()}"
+    } else {
+        "NO ALARM SET"
+    }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(1.dp, colors.ink.copy(alpha = 0.3f))
+            .background(colors.tile)
+            .clickable { Toast.makeText(context, "ALARM", Toast.LENGTH_SHORT).show() }
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = label,
+            color = colors.ink,
+            fontFamily = JetBrainsMono,
+            fontWeight = FontWeight.Bold,
+            fontSize = 12.sp,
+            letterSpacing = 0.5.sp,
+            modifier = Modifier.weight(1f, fill = false)
+        )
+        Text(
+            text = if (next != null && next.triggerTime > 0) "⏰" else "×",
+            color = if (next != null && next.triggerTime > 0) colors.accent else colors.ink.copy(alpha = 0.5f),
+            fontFamily = JetBrainsMono,
+            fontSize = 14.sp
+        )
+    }
+}
+
+@Composable
+private fun SuggestTile(label: String, glyph: String, onTap: () -> Unit) {
+    val colors = LocalAppTheme.current
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(1.dp, colors.ink.copy(alpha = 0.3f))
+            .background(colors.tile)
+            .clickable { onTap() }
+            .padding(horizontal = 12.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = glyph,
+            color = colors.accent,
+            fontFamily = SpaceGrotesk,
+            fontWeight = FontWeight.Black,
+            fontSize = 18.sp
+        )
+        Spacer(Modifier.width(12.dp))
+        Text(
+            text = label,
+            color = colors.ink,
+            fontFamily = JetBrainsMono,
+            fontWeight = FontWeight.Bold,
+            fontSize = 13.sp,
+            modifier = Modifier.weight(1f)
+        )
+        Text(
+            text = "→",
+            color = colors.accent,
+            fontFamily = SpaceGrotesk,
+            fontWeight = FontWeight.Black,
+            fontSize = 18.sp
+        )
     }
 }
 

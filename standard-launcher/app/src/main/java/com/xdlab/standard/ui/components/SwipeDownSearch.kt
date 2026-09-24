@@ -26,6 +26,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import kotlinx.coroutines.delay
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -59,7 +60,11 @@ fun SwipeDownSearch(
     var query by remember { mutableStateOf("") }
     val appear = remember { Animatable(0f) }
     LaunchedEffect(Unit) { appear.animateTo(1f, tween(300)) }
-    LaunchedEffect(Unit) { focus.requestFocus() }
+    LaunchedEffect(Unit) {
+        focus.requestFocus()
+        delay(120)
+        keyboard?.show()
+    }
     BackHandler { onDismiss() }
 
     val results = remember(apps, query) {
@@ -86,17 +91,11 @@ fun SwipeDownSearch(
                     }
                 )
             }
-            .pointerInput(Unit) {
-                detectTapGestures(
-                    onTap = { onDismiss() }
-                )
-            }
     ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .windowInsetsPadding(WindowInsets.safeDrawing)
-                .pointerInput(Unit) { }
         ) {
             Box(
                 modifier = Modifier
@@ -127,32 +126,42 @@ fun SwipeDownSearch(
                     .padding(horizontal = 16.dp)
                     .background(colors.accent)
             )
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(3),
-                modifier = Modifier
+            Box(
+                Modifier
                     .fillMaxSize()
-                    .padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(TileDefaults.Gutter),
-                horizontalArrangement = Arrangement.spacedBy(TileDefaults.Gutter)
-            ) {
-                items(results, key = { it.packageName }) { app ->
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .border(TileDefaults.Border, colors.onInk.copy(alpha = 0.5f))
-                            .tilePress(onTap = { launch(app.packageName) }, tilt = false)
-                            .button(app.label) { launch(app.packageName) }
-                            .padding(12.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        AppIcon(packageName = app.packageName, size = 40.dp)
-                        MonoLabel(
-                            app.label,
-                            size = 11.sp,
-                            color = colors.onInk,
-                            maxLines = 1
+                    .pointerInput(Unit) {
+                        detectTapGestures(
+                            onTap = { onDismiss() }
                         )
+                    }
+            ) {
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(3),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(TileDefaults.Gutter),
+                    horizontalArrangement = Arrangement.spacedBy(TileDefaults.Gutter)
+                ) {
+                    items(results, key = { it.packageName }) { app ->
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .border(TileDefaults.Border, colors.onInk.copy(alpha = 0.5f))
+                                .tilePress(onTap = { launch(app.packageName) }, tilt = false)
+                                .button(app.label) { launch(app.packageName) }
+                                .padding(12.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            AppIcon(packageName = app.packageName, size = 40.dp)
+                            MonoLabel(
+                                app.label,
+                                size = 11.sp,
+                                color = colors.onInk,
+                                maxLines = 1
+                            )
+                        }
                     }
                 }
             }

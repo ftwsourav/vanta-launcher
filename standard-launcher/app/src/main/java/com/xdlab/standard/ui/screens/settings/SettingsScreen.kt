@@ -36,6 +36,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.toggleable
@@ -138,6 +140,15 @@ fun SettingsScreen(viewModel: StandardAppViewModel, onClose: () -> Unit) {
     var motionExpanded by remember { mutableStateOf(true) }
     var systemExpanded by remember { mutableStateOf(true) }
     var aboutExpanded by remember { mutableStateOf(true) }
+    var gesturesExpanded by remember { mutableStateOf(true) }
+
+    val gesturesPrefs = remember { context.getSharedPreferences("standard_gestures", Context.MODE_PRIVATE) }
+    var swipeUp by remember { mutableStateOf(gesturesPrefs.getString("swipe_up", "SEARCH") ?: "SEARCH") }
+    var swipeDown by remember { mutableStateOf(gesturesPrefs.getString("swipe_down", "SEARCH") ?: "SEARCH") }
+    var swipeLeft by remember { mutableStateOf(gesturesPrefs.getString("swipe_left", "NEXT PAGE") ?: "NEXT PAGE") }
+    var swipeRight by remember { mutableStateOf(gesturesPrefs.getString("swipe_right", "PREV PAGE") ?: "PREV PAGE") }
+
+    var showOnboarding by remember { mutableStateOf(!prefs.getBoolean("first_run", false)) }
 
     val version = remember {
         runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull() ?: "1.0"
@@ -502,6 +513,42 @@ fun SettingsScreen(viewModel: StandardAppViewModel, onClose: () -> Unit) {
             }
 
             CollapsibleSection(
+                title = "GESTURES",
+                expanded = gesturesExpanded,
+                onToggle = { gesturesExpanded = !gesturesExpanded }
+            ) {
+                ValueRow("SWIPE UP", swipeUp) {
+                    tick()
+                    val next = when (swipeUp) {
+                        "SEARCH" -> "NOTIFICATIONS"
+                        "NOTIFICATIONS" -> "FOCUS"
+                        else -> "SEARCH"
+                    }
+                    swipeUp = next
+                    gesturesPrefs.edit().putString("swipe_up", next).apply()
+                    Toast.makeText(context, "SWIPE UP: $next", Toast.LENGTH_SHORT).show()
+                }
+                ValueRow("SWIPE DOWN", swipeDown) {
+                    tick()
+                    swipeDown = "SEARCH"
+                    gesturesPrefs.edit().putString("swipe_down", "SEARCH").apply()
+                    Toast.makeText(context, "SWIPE DOWN: SEARCH", Toast.LENGTH_SHORT).show()
+                }
+                ValueRow("SWIPE LEFT", swipeLeft) {
+                    tick()
+                    swipeLeft = "NEXT PAGE"
+                    gesturesPrefs.edit().putString("swipe_left", "NEXT PAGE").apply()
+                    Toast.makeText(context, "SWIPE LEFT: NEXT PAGE", Toast.LENGTH_SHORT).show()
+                }
+                ValueRow("SWIPE RIGHT", swipeRight) {
+                    tick()
+                    swipeRight = "PREV PAGE"
+                    gesturesPrefs.edit().putString("swipe_right", "PREV PAGE").apply()
+                    Toast.makeText(context, "SWIPE RIGHT: PREV PAGE", Toast.LENGTH_SHORT).show()
+                }
+            }
+
+            CollapsibleSection(
                 title = "ABOUT",
                 expanded = aboutExpanded,
                 onToggle = { aboutExpanded = !aboutExpanded }
@@ -527,6 +574,13 @@ fun SettingsScreen(viewModel: StandardAppViewModel, onClose: () -> Unit) {
                     picker = null
                 }
             )
+        }
+
+        if (showOnboarding) {
+            FirstRunOnboarding {
+                showOnboarding = false
+                prefs.edit().putBoolean("first_run", true).apply()
+            }
         }
     }
 }
@@ -571,6 +625,64 @@ private fun SectionHeader(title: String) {
         MonoLabel(title, size = 11.sp, weight = FontWeight.Bold, color = colors.ink)
         Spacer(Modifier.height(6.dp))
         Box(Modifier.fillMaxWidth().height(2.dp).background(colors.ink))
+    }
+}
+
+private data class OnboardingSlide(val title: String, val description: String)
+
+private val OnboardingSlides = listOf(
+    OnboardingSlide("SWIPE TO NAVIGATE", "SWIPE LEFT AND RIGHT TO MOVE BETWEEN PAGES."),
+    OnboardingSlide("TILES ARE LIVE", "TILES UPDATE IN REAL TIME WITH LIVE DATA."),
+    OnboardingSlide("CHECK THE LIVE PAGE", "OPEN THE LIVE PAGE TO SEE CURRENT SESSIONS AND TRACKS.")
+)
+
+@Composable
+private fun FirstRunOnboarding(onFinish: () -> Unit) {
+    val colors = LocalAppTheme.current
+    val scope = rememberCoroutineScope()
+    val pagerState = rememberPagerState { 3 }
+    BackHandler { onFinish() }
+    Box(
+        modifier = Modifier.fillMaxSize().background(colors.background.copy(alpha = 0.97f))
+    ) {
+        Column(
+            modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).padding(16.dp)
+        ) {
+            Spacer(Modifier.weight(1f))
+            HorizontalPager(
+                state = pagerState,
+                modifier = Modifier.fillMaxWidth()
+            ) { page ->
+                val slide = OnboardingSlides[page]
+                Column(
+                    modifier = Modifier.fillMaxSize().padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    HeadlineText(slide.title, 32.sp, modifier = Modifier.weight(1f))
+                    MonoLabel(slide.description, size = 12.sp, color = colors.muted, modifier = Modifier.weight(1f), maxLines = 3)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier.weight(1f).heightIn(min = 48.dp).border(2.dp, colors.ink).plainClickable(onFinish),
+                            contentAlignment = Alignment.Center
+                        ) { MonoLabel("SKIP", size = 12.sp, weight = FontWeight.Bold, color = colors.ink) }
+                        Box(
+                            modifier = Modifier.weight(1f).heightIn(min = 48.dp).border(2.dp, colors.accent).background(colors.accent).plainClickable {
+                                if (page < OnboardingSlides.lastIndex) {
+                                    scope.launch { pagerState.animateScrollToPage(page + 1) }
+                                } else {
+                                    onFinish()
+                                }
+                            },
+                            contentAlignment = Alignment.Center
+                        ) { MonoLabel(if (page == OnboardingSlides.lastIndex) "FINISH" else "NEXT", size = 12.sp, weight = FontWeight.Bold, color = colors.onAccent) }
+                    }
+                }
+            }
+            Spacer(Modifier.weight(1f))
+        }
     }
 }
 
