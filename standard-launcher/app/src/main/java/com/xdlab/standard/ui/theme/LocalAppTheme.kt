@@ -1,8 +1,15 @@
 package com.xdlab.standard.ui.theme
 
+import android.content.Context
+import android.os.Build
+import androidx.compose.material3.dynamicDarkColorScheme
+import androidx.compose.material3.dynamicLightColorScheme
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.platform.LocalContext
 import com.xdlab.standard.domain.model.ThemeSurface
 
 @Immutable
@@ -33,27 +40,50 @@ data class AppColors(
     val muted: Color get() = ink.copy(alpha = 0.55f)
 }
 
+@Composable
 fun AppColors(
     surface: ThemeSurface,
     dark: Boolean,
     useTexture: Boolean,
     textureStrength: Float,
     noiseDrift: Boolean
-): AppColors = AppColors(
-    background = Color(surface.background),
-    ink = Color(surface.ink),
-    onInk = Color(surface.onInk),
-    tile = Color(surface.tile),
-    onTile = Color(surface.onTile),
-    accent = Color(surface.accent),
-    onAccent = Color(surface.onAccent),
-    outline = Color(surface.outline),
-    filledTiles = surface.filledTiles,
-    isDark = dark,
-    useTexture = useTexture,
-    textureStrength = textureStrength,
-    noiseDrift = noiseDrift
-)
+): AppColors {
+    val context = LocalContext.current
+    val prefs = context.getSharedPreferences("standard_settings", Context.MODE_PRIVATE)
+    val customAccent = prefs.getLong("custom_accent", 0L)
+    val dynamicColor = prefs.getBoolean("dynamic_color", false)
+
+    val resolvedAccent: Color
+    val resolvedOnAccent: Color
+
+    if (dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        val scheme = if (dark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+        resolvedAccent = scheme.primary
+        resolvedOnAccent = if (resolvedAccent.luminance() > 0.5f) Color.Black else Color.White
+    } else if (customAccent != 0L) {
+        resolvedAccent = Color(customAccent)
+        resolvedOnAccent = if (resolvedAccent.luminance() > 0.5f) Color.Black else Color.White
+    } else {
+        resolvedAccent = Color(surface.accent)
+        resolvedOnAccent = Color(surface.onAccent)
+    }
+
+    return AppColors(
+        background = Color(surface.background),
+        ink = Color(surface.ink),
+        onInk = Color(surface.onInk),
+        tile = Color(surface.tile),
+        onTile = Color(surface.onTile),
+        accent = resolvedAccent,
+        onAccent = resolvedOnAccent,
+        outline = Color(surface.outline),
+        filledTiles = surface.filledTiles,
+        isDark = dark,
+        useTexture = useTexture,
+        textureStrength = textureStrength,
+        noiseDrift = noiseDrift
+    )
+}
 
 val LocalAppTheme = compositionLocalOf<AppColors> {
     error("LocalAppTheme not provided")

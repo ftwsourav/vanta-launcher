@@ -1,6 +1,12 @@
 package com.xdlab.standard.ui.screens.drawer
 
+import android.app.AppOpsManager
+import android.app.usage.UsageStatsManager
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.os.Process
+import android.provider.Settings
 import android.widget.Toast
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -126,16 +132,29 @@ private sealed interface Entry {
 
 private data class AppRowMenuAction(val label: String, val onClick: () -> Unit)
 
+private data class MostUsedItem(val app: AppItem, val timeText: String)
+
+private fun formatUsageTime(ms: Long): String {
+    val totalMinutes = ms / 60_000
+    return if (totalMinutes >= 60) {
+        val hours = totalMinutes / 60
+        val tenths = (totalMinutes % 60) * 10 / 60
+        "${hours}.${tenths}h"
+    } else {
+        "${totalMinutes}m"
+    }
+}
+
 private fun letterOf(app: AppItem): String =
     app.label.firstOrNull()?.takeIf { it.isLetter() }?.uppercase() ?: "#"
 
-private fun buildEntries(apps: List<AppItem>, query: String, sortMode: String): List<Entry> {
+private fun buildEntries(apps: List<AppItem>, query: String, sortMode: String, usageCount: Map<String, Int> = emptyMap()): List<Entry> {
     val q = query.trim()
     val filtered = if (q.isEmpty()) apps else apps.filter { it.label.contains(q, ignoreCase = true) }
     var n = 0
     return if (sortMode == "mostUsed") {
         buildList {
-            filtered.sortedWith(compareByDescending<AppItem> { it.pinned }.thenBy { it.label.lowercase() })
+            filtered.sortedWith(compareByDescending<AppItem> { usageCount[it.packageName] ?: 0 }.thenBy { it.label.lowercase() })
                 .forEach { add(Entry.App(it, ++n)) }
         }
     } else {
@@ -193,6 +212,13 @@ fun DrawerScreen(viewModel: StandardAppViewModel, onOpenSettings: () -> Unit) {
     var hiddenRaw by remember { mutableStateOf(hiddenPrefs.getString("hidden", "") ?: "") }
     val hiddenApps = remember(hiddenRaw) { hiddenRaw.split(",").filter { it.isNotBlank() }.toSet() }
 
+    val usageCountPrefs = context.getSharedPreferences("standard_app_usage", Context.MODE_PRIVATE)
+    val usageLastPrefs = context.getSharedPreferences("standard_app_last_open", Context.MODE_PRIVATE)
+    var usageVersion by remember { mutableIntStateOf(0) }
+    val usageCountMap = remember(usageVersion) {
+        usageCountPrefs.all.mapValues { (_, v) -> (v as? Int) ?: 0 }
+    }
+
     val showHeader = searchQuery.isBlank()
     val visibleApps = remember(allApps, hiddenApps) { allApps.filter { it.packageName !in hiddenApps } }
     val byPkg = remember(visibleApps) { visibleApps.associateBy { it.packageName } }
@@ -201,8 +227,43 @@ fun DrawerScreen(viewModel: StandardAppViewModel, onOpenSettings: () -> Unit) {
         else pinned.filter { it.packageName !in hiddenApps }.take(4)
     }
     val recentsVisible = showHeader && recents.isNotEmpty()
-    val entries = remember(searchQuery, visibleApps, sortMode) { buildEntries(visibleApps, searchQuery, sortMode) }
-    val prefix = (if (showHeader) 1 else 0) + (if (recentsVisible) 1 else 0) + 1
+    val hasUsagePermission = remember {
+        try {
+            val appOps = context.getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
+            val mode = appOps.unsafeCheckOpNoThrow(AppOpsManager.OPSTR_GET_USAGE_STATS, Process.myUid(), context.packageName)
+            mode == AppOpsManager.MODE_ALLOWED
+        } catch (_: Exception) {
+            false
+        }
+    }
+    val mostUsedItems: List<MostUsedItem> = remember(hasUsagePermission, usageCountMap, byPkg) {
+        if (hasUsagePermission) {
+            try {
+                val usm = context.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
+                val now = System.currentTimeMillis()
+                val stats = usm.queryUsageStats(UsageStatsManager.INTERVAL_BEST, now - 30L * 24 * 60 * 60 * 1000, now) ?: emptyList()
+                stats.filter { it.totalTimeInForeground > 0 }
+                    .groupBy { it.packageName }
+                    .mapValues { (_, list) -> list.sumOf { it.totalTimeInForeground } }
+                    .toList()
+                    .sortedByDescending { it.second }
+                    .mapNotNull { (pkg, time) -> byPkg[pkg]?.let { MostUsedItem(it, formatUsageTime(time)) } }
+                    .take(4)
+            } catch (_: Exception) {
+                emptyList()
+            }
+        } else {
+            visibleApps.mapNotNull { app ->
+                val count = usageCountMap[app.packageName] ?: 0
+                if (count > 0) MostUsedItem(app, "${count}×") else null
+            }
+                .sortedWith(compareByDescending<MostUsedItem> { usageCountMap[it.app.packageName] ?: 0 }.thenBy { it.app.label.lowercase() })
+                .take(4)
+        }
+    }
+    val mostUsedVisible = showHeader && mostUsedItems.isNotEmpty()
+    val entries = remember(searchQuery, visibleApps, sortMode, usageCountMap) { buildEntries(visibleApps, searchQuery, sortMode, usageCountMap) }
+    val prefix = (if (showHeader) 1 else 0) + (if (mostUsedVisible) 1 else 0) + (if (recentsVisible) 1 else 0) + 1
     val letterIndex = remember(entries, prefix) {
         buildMap { entries.forEachIndexed { i, e -> if (e is Entry.Letter) put(e.letter, prefix + i) } }
     }
@@ -216,7 +277,13 @@ fun DrawerScreen(viewModel: StandardAppViewModel, onOpenSettings: () -> Unit) {
     val jumpTo: (String) -> Unit = { letter ->
         letterIndex[letter]?.let { index -> scope.launch { listState.scrollToItem(index) } }
     }
-    val launch: (AppItem) -> Unit = { viewModel.launchApp(context, it.packageName) }
+    val launch: (AppItem) -> Unit = {
+        val current = usageCountPrefs.getInt(it.packageName, 0)
+        usageCountPrefs.edit().putInt(it.packageName, current + 1).apply()
+        usageLastPrefs.edit().putLong(it.packageName, System.currentTimeMillis()).apply()
+        usageVersion++
+        viewModel.launchApp(context, it.packageName)
+    }
     val togglePin: (AppItem) -> Unit = { app ->
         viewModel.togglePin(app)
         if (hapticsOn) haptics.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -288,6 +355,16 @@ fun DrawerScreen(viewModel: StandardAppViewModel, onOpenSettings: () -> Unit) {
                         )
                     }
                 }
+                if (mostUsedVisible) {
+                    item(key = "mostUsed", contentType = "mostUsed") {
+                        MostUsedRow(
+                            apps = mostUsedItems,
+                            onLaunch = launch,
+                            onTogglePin = togglePin,
+                            modifier = Modifier.padding(horizontal = PagePadding, vertical = 6.dp)
+                        )
+                    }
+                }
                 if (recentsVisible) {
                     item(key = "recents", contentType = "recents") {
                         RecentlyUsedRow(
@@ -339,7 +416,14 @@ fun DrawerScreen(viewModel: StandardAppViewModel, onOpenSettings: () -> Unit) {
                                 pinned = entry.app.pinned,
                                 menuActions = listOf(
                                     AppRowMenuAction(if (entry.app.pinned) "UNPIN FROM HOME" else "PIN TO HOME") { togglePin(entry.app) },
-                                    AppRowMenuAction("HIDE APP") { hideApp(entry.app) }
+                                    AppRowMenuAction("HIDE APP") { hideApp(entry.app) },
+                                    AppRowMenuAction("APP INFO") {
+                                        val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                            data = Uri.parse("package:${entry.app.packageName}")
+                                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                        }
+                                        try { context.startActivity(intent) } catch (_: Exception) {}
+                                    }
                                 ),
                                 modifier = Modifier
                                     .padding(horizontal = PagePadding)
@@ -524,6 +608,43 @@ private fun RecentlyUsedRow(
                     ) {
                         AppIcon(packageName = app.packageName, size = 32.dp)
                         HeadlineText(app.label.uppercase(), 11.sp, color = c, maxLines = 1)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MostUsedRow(
+    apps: List<MostUsedItem>,
+    onLaunch: (AppItem) -> Unit,
+    onTogglePin: (AppItem) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val c = LocalTileColors.current.content
+    Column(modifier = modifier.fillMaxWidth()) {
+        SectionLabel("MOST USED", modifier = Modifier.padding(bottom = 6.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(Gutter)
+        ) {
+            apps.forEach { item ->
+                Tile(
+                    modifier = Modifier.weight(1f),
+                    style = TileStyle.Outline,
+                    contentPadding = 8.dp,
+                    onClick = { onLaunch(item.app) },
+                    onLongClick = { onTogglePin(item.app) }
+                ) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        AppIcon(packageName = item.app.packageName, size = 32.dp)
+                        HeadlineText(item.app.label.uppercase(), 11.sp, color = c, maxLines = 1)
+                        MonoLabel(item.timeText, size = 8.sp, color = c, maxLines = 1)
                     }
                 }
             }

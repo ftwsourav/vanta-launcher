@@ -1,9 +1,18 @@
 package com.xdlab.standard.ui.components
 
+import android.app.NotificationManager
 import android.content.Context
+import android.content.Intent
+import android.content.pm.LauncherApps
+import android.content.pm.ShortcutInfo
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.drawable.Drawable
+import android.net.Uri
+import android.os.Process
+import android.os.UserHandle
+import android.provider.Settings
+import android.widget.Toast
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -15,6 +24,8 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,6 +36,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -34,6 +47,7 @@ import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -41,6 +55,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
@@ -239,6 +254,37 @@ fun AppTile(
     val flip = remember { Animatable(0f) }
     val turnstileRotation = remember { Animatable(0f) }
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    val notifCount by produceState(initialValue = 0, app.packageName) {
+        value = try {
+            val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            nm.activeNotifications.count { it.packageName == app.packageName }
+        } catch (e: Exception) {
+            0
+        }
+    }
+    var menuExpanded by remember { mutableStateOf(false) }
+    var shortcuts by remember(app.packageName) { mutableStateOf<List<ShortcutInfo>>(emptyList()) }
+    LaunchedEffect(menuExpanded) {
+        if (menuExpanded) {
+            shortcuts = try {
+                val launcherApps = context.getSystemService(Context.LAUNCHER_APPS_SERVICE) as LauncherApps
+                val query = LauncherApps.ShortcutQuery().apply {
+                    setQueryFlags(
+                        LauncherApps.ShortcutQuery.FLAG_MATCH_DYNAMIC or
+                            LauncherApps.ShortcutQuery.FLAG_MATCH_PINNED or
+                            LauncherApps.ShortcutQuery.FLAG_MATCH_MANIFEST
+                    )
+                    setPackage(app.packageName)
+                }
+                launcherApps.getShortcuts(query, Process.myUserHandle()) ?: emptyList()
+            } catch (e: Exception) {
+                Toast.makeText(context, "Shortcuts unavailable", Toast.LENGTH_SHORT).show()
+                emptyList()
+            }
+        }
+    }
+    val longHandler: (() -> Unit)? = if (editMode) onLongPress else { { menuExpanded = true } }
 
     val front: @Composable () -> Unit = {
         AppTileFace(app, iconStyle, captionText, titleSize, trailing)
@@ -291,7 +337,7 @@ fun AppTile(
     Box(
         modifier = modifier
             .editJiggle(editMode)
-            .tilePress(onTap = tap, onLongPress = onLongPress, tilt = !editMode)
+            .tilePress(onTap = tap, onLongPress = longHandler, tilt = !editMode)
             .graphicsLayer {
                 rotationY = flip.value
                 cameraDistance = 16f * density
@@ -334,6 +380,67 @@ fun AppTile(
             Box(modifier = Modifier.fillMaxSize().graphicsLayer { rotationY = 180f }) {
                 Tile(modifier = Modifier.fillMaxSize(), style = style, content = back)
             }
+        }
+
+        if (notifCount > 0) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .size(16.dp)
+                    .background(colors.accent, CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                if (notifCount <= 9) {
+                    Text(
+                        text = notifCount.toString(),
+                        style = StandardType.mono(9.sp),
+                        color = colors.onAccent,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
+        }
+
+        DropdownMenu(
+            expanded = menuExpanded,
+            onDismissRequest = { menuExpanded = false }
+        ) {
+            shortcuts.take(4).forEach { shortcut ->
+                DropdownMenuItem(
+                    text = { Text(shortcut.shortLabel?.toString() ?: "", style = StandardType.mono(13.sp)) },
+                    onClick = {
+                        menuExpanded = false
+                        try {
+                            val launcherApps = context.getSystemService(Context.LAUNCHER_APPS_SERVICE) as LauncherApps
+                            launcherApps.startShortcut(shortcut, null, null)
+                        } catch (e: Exception) {
+                            Toast.makeText(context, "Shortcut unavailable", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                )
+            }
+            DropdownMenuItem(
+                text = { Text("APP INFO", style = StandardType.mono(13.sp)) },
+                onClick = {
+                    menuExpanded = false
+                    val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                        data = Uri.fromParts("package", app.packageName, null)
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    try { context.startActivity(intent) } catch (e: Exception) {}
+                }
+            )
+            DropdownMenuItem(
+                text = { Text("UNINSTALL", style = StandardType.mono(13.sp)) },
+                onClick = {
+                    menuExpanded = false
+                    val intent = Intent(Intent.ACTION_DELETE).apply {
+                        data = Uri.fromParts("package", app.packageName, null)
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    try { context.startActivity(intent) } catch (e: Exception) {}
+                }
+            )
         }
     }
 }
@@ -398,40 +505,83 @@ private fun AppTileFace(
 }
 
 @Composable
-fun AppIcon(packageName: String, size: Dp) {
+fun AppIcon(packageName: String, size: Dp, modifier: Modifier = Modifier) {
     val context = LocalContext.current
-    val bitmapState = produceState<ImageBitmap?>(initialValue = null, packageName, context) {
-        value = withContext(Dispatchers.IO) {
-            IconCache.getOrLoad(packageName) { loadAppIconBitmap(context, packageName) }
+    val colors = LocalAppTheme.current
+    val maskShape = remember(context) {
+        val prefs = context.getSharedPreferences("standard_settings", Context.MODE_PRIVATE)
+        when (prefs.getString("icon_mask", "round")) {
+            "square" -> RoundedCornerShape(12.dp)
+            "squircle" -> RoundedCornerShape(20.dp)
+            else -> CircleShape
         }
     }
-    val bmp = bitmapState.value
-    if (bmp != null) {
-        Image(
-            painter = BitmapPainter(bmp),
-            contentDescription = null,
-            modifier = Modifier.size(size),
-            contentScale = ContentScale.Fit
-        )
+    val state = produceState<IconLoadState>(initialValue = IconLoadState.Loading, packageName, context) {
+        value = withContext(Dispatchers.IO) {
+            IconCache.getOrLoad(packageName) { loadAppIcon(context, packageName) }
+        }
+    }
+    Box(
+        modifier = modifier
+            .size(size)
+            .clip(maskShape)
+            .background(colors.tile)
+            .border(1.dp, colors.outline.copy(alpha = 0.30f), maskShape),
+        contentAlignment = Alignment.Center
+    ) {
+        when (val s = state.value) {
+            is IconLoadState.Success -> {
+                Image(
+                    painter = BitmapPainter(s.bitmap),
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+            }
+            is IconLoadState.Failed -> {
+                val letter = s.label.firstOrNull()?.uppercase() ?: "?"
+                Text(
+                    text = letter,
+                    style = StandardType.mono((size.value * 0.5f).sp, FontWeight.Bold),
+                    color = colors.onTile
+                )
+            }
+            IconLoadState.Loading -> Unit
+        }
     }
 }
 
+private sealed interface IconLoadState {
+    object Loading : IconLoadState
+    data class Success(val bitmap: ImageBitmap) : IconLoadState
+    data class Failed(val label: String) : IconLoadState
+}
+
 private object IconCache {
-    private val cache = android.util.LruCache<String, ImageBitmap>(64)
-    fun getOrLoad(key: String, loader: () -> ImageBitmap?): ImageBitmap? {
+    private val cache = android.util.LruCache<String, IconLoadState>(64)
+    fun getOrLoad(key: String, loader: () -> IconLoadState): IconLoadState {
         cache.get(key)?.let { return it }
-        val loaded = loader() ?: return null
+        val loaded = loader()
         cache.put(key, loaded)
         return loaded
     }
 }
 
-private fun loadAppIconBitmap(context: Context, packageName: String): ImageBitmap? {
+private fun loadAppIcon(context: Context, packageName: String): IconLoadState {
     return try {
         val drawable: Drawable = context.packageManager.getApplicationIcon(packageName)
-        drawableToBitmap(drawable, 144).asImageBitmap()
+        IconLoadState.Success(drawableToBitmap(drawable, 144).asImageBitmap())
     } catch (e: Exception) {
-        null
+        IconLoadState.Failed(resolveAppLabel(context, packageName))
+    }
+}
+
+private fun resolveAppLabel(context: Context, packageName: String): String {
+    return try {
+        val info = context.packageManager.getApplicationInfo(packageName, 0)
+        context.packageManager.getApplicationLabel(info).toString()
+    } catch (e: Exception) {
+        packageName
     }
 }
 

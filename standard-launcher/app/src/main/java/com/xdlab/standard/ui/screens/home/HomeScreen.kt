@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -78,6 +79,7 @@ import com.xdlab.standard.domain.model.HomeModule
 import com.xdlab.standard.domain.model.IconStyle
 import com.xdlab.standard.domain.model.SettingsState
 import com.xdlab.standard.domain.model.TileSize
+import com.xdlab.standard.ui.components.AppIcon
 import com.xdlab.standard.ui.components.AppTile
 import com.xdlab.standard.ui.components.BatteryTile
 import com.xdlab.standard.ui.components.FloatingSearchBar
@@ -206,6 +208,7 @@ fun HomeScreen(
     val launch: (String) -> Unit = { viewModel.launchApp(context, it) }
     val fontScale = LocalDensity.current.fontScale.coerceIn(1f, 1.3f)
     val scrollState = rememberScrollState()
+    val safeBottom = WindowInsets.safeDrawing.asPaddingValues().calculateBottomPadding()
 
     Box(modifier = Modifier
         .fillMaxSize()
@@ -358,8 +361,21 @@ fun HomeScreen(
                     QuoteLine(quotes = settings.quotes, modifier = Modifier.weight(2f).padding(horizontal = 6.dp))
                     SettingsCaption(modifier = Modifier.weight(1f).fillMaxHeight(), onClick = onOpenSettings)
                 }
+
+                Spacer(Modifier.height(84.dp))
             }
         }
+
+        HomeDock(
+            editMode = editMode,
+            pinned = pinned,
+            onLaunch = launch,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp)
+                .padding(bottom = safeBottom)
+        )
 
         if (HomeModule.QUICK_SETTINGS in modules) {
             QuickSettingsFab(
@@ -764,6 +780,13 @@ private fun renderRow(
                                         Toast.makeText(context, "WIDGET PICKER — COMING SOON", Toast.LENGTH_SHORT).show()
                                     }
                                 )
+                                DropdownMenuItem(
+                                    text = { Text("EDIT DOCK") },
+                                    onClick = {
+                                        onContextMenuTile(null)
+                                        Toast.makeText(context, "DRAG APPS TO DOCK", Toast.LENGTH_SHORT).show()
+                                    }
+                                )
                             }
                         }
                     }
@@ -904,5 +927,127 @@ private fun SettingsCaption(modifier: Modifier = Modifier, onClick: () -> Unit) 
         Box(Modifier.fillMaxWidth().height(1.dp).background(colors.ink))
         Spacer(Modifier.height(4.dp))
         MonoLabel("SETTINGS →", size = 9.sp, color = colors.muted)
+    }
+}
+
+@Composable
+private fun HomeDock(
+    editMode: Boolean,
+    pinned: List<AppItem>,
+    onLaunch: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val colors = LocalAppTheme.current
+    val prefs = remember { context.getSharedPreferences("standard_dock", android.content.Context.MODE_PRIVATE) }
+    var dockPackages by remember {
+        mutableStateOf(prefs.getString("packages", "")?.split(",")?.filter { it.isNotBlank() } ?: emptyList())
+    }
+    LaunchedEffect(pinned) {
+        if (!prefs.contains("packages") && dockPackages.isEmpty()) {
+            val defaults = pinned.take(4).map { it.packageName }.ifEmpty {
+                listOf(
+                    listOf("com.android.dialer", "com.android.phone", "com.samsung.android.dialer"),
+                    listOf("com.android.contacts", "com.samsung.android.app.contacts"),
+                    listOf("com.android.mms", "com.google.android.apps.messaging", "com.samsung.android.messaging"),
+                    listOf("com.android.browser", "com.android.chrome", "org.mozilla.firefox", "com.brave.browser")
+                ).mapNotNull { candidates ->
+                    candidates.firstOrNull { pkg ->
+                        try { context.packageManager.getApplicationInfo(pkg, 0); true } catch (_: Exception) { false }
+                    }
+                }
+            }
+            if (defaults.isNotEmpty()) {
+                dockPackages = defaults
+                prefs.edit().putString("packages", defaults.joinToString(",")).apply()
+            }
+        }
+    }
+    val onRemove: (String) -> Unit = { removed ->
+        val newPackages = dockPackages.filterNot { it == removed }
+        dockPackages = newPackages
+        prefs.edit().putString("packages", newPackages.joinToString(",")).apply()
+    }
+    Tile(
+        modifier = modifier,
+        contentPadding = 0.dp
+    ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Box(Modifier.fillMaxWidth().height(1.dp).background(colors.accent))
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                for (i in 0 until 4) {
+                    DockSlot(
+                        packageName = dockPackages.getOrNull(i),
+                        editMode = editMode,
+                        onLaunch = onLaunch,
+                        onRemove = onRemove
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DockSlot(
+    packageName: String?,
+    editMode: Boolean,
+    onLaunch: (String) -> Unit,
+    onRemove: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val colors = LocalAppTheme.current
+    val content = LocalTileColors.current.content
+    if (packageName == null) {
+        if (editMode) {
+            Box(
+                modifier = modifier
+                    .size(56.dp)
+                    .tilePress(
+                        onTap = { Toast.makeText(context, "DRAG APP HERE TO ADD", Toast.LENGTH_SHORT).show() },
+                        tilt = false
+                    )
+                    .button("Add dock app") { Toast.makeText(context, "DRAG APP HERE TO ADD", Toast.LENGTH_SHORT).show() },
+                contentAlignment = Alignment.Center
+            ) {
+                MonoLabel("+", size = 20.sp, color = colors.accent, weight = FontWeight.Bold)
+            }
+        } else {
+            Spacer(modifier.size(56.dp))
+        }
+    } else {
+        val label = remember(packageName) {
+            try {
+                context.packageManager.getApplicationLabel(
+                    context.packageManager.getApplicationInfo(packageName, 0)
+                ).toString()
+            } catch (_: Exception) {
+                packageName
+            }
+        }
+        Column(
+            modifier = modifier
+                .size(56.dp)
+                .tilePress(
+                    onTap = { onLaunch(packageName) },
+                    onLongPress = {
+                        Toast.makeText(context, "LONG PRESS TO REMOVE", Toast.LENGTH_SHORT).show()
+                        onRemove(packageName)
+                    },
+                    tilt = false
+                )
+                .button(label) { onLaunch(packageName) },
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            AppIcon(packageName = packageName, size = 32.dp)
+            Spacer(Modifier.height(2.dp))
+            MonoLabel(label, size = 9.sp, color = content, weight = FontWeight.Medium, maxLines = 1)
+        }
     }
 }

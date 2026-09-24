@@ -6,7 +6,12 @@ import com.xdlab.standard.data.repo.SettingsRepository
 import com.xdlab.standard.data.repo.WeatherRepository
 import com.xdlab.standard.domain.model.WeatherData
 import com.xdlab.standard.domain.model.WeatherLocation
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -28,6 +33,8 @@ class WeatherRepositoryImpl(
 
     private val json = Json { ignoreUnknownKeys = true }
     private val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    private val tilePrefs = context.getSharedPreferences(TILE_PREFS_NAME, Context.MODE_PRIVATE)
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val client = OkHttpClient.Builder()
         .callTimeout(12, TimeUnit.SECONDS)
         .build()
@@ -46,6 +53,7 @@ class WeatherRepositoryImpl(
 
     init {
         loadCachedWeather()
+        startAutoRefresh()
     }
 
     private fun loadCachedWeather() {
@@ -71,6 +79,54 @@ class WeatherRepositoryImpl(
         } catch (e: Exception) {
             Log.w(TAG, "weather cache write failed", e)
         }
+    }
+
+    private fun startAutoRefresh() {
+        scope.launch {
+            while (isActive) {
+                delay(REFRESH_INTERVAL_MS)
+                val loc = settings.settings.value.weatherLocation
+                if (loc.lat.isFinite() && loc.lon.isFinite() && !(loc.lat == 0.0 && loc.lon == 0.0)) {
+                    refresh()
+                }
+            }
+        }
+    }
+
+    private fun persistTile(data: WeatherData, iconCode: String) {
+        try {
+            tilePrefs.edit()
+                .putString(KEY_TILE_TEMP, "${data.tempC}\u00B0")
+                .putString(KEY_TILE_CONDITION, data.condition.uppercase())
+                .putString(KEY_TILE_CITY, data.location.uppercase())
+                .putString(KEY_TILE_ICON, iconCode)
+                .putLong(KEY_TILE_UPDATED, data.lastUpdatedEpoch)
+                .apply()
+        } catch (e: Exception) {
+            Log.w(TAG, "tile prefs write failed", e)
+        }
+    }
+
+    private fun wmoToOwmIcon(code: Int, isDay: Boolean): String {
+        val base = when (code) {
+            0, 1 -> "01"
+            2 -> "02"
+            3 -> "04"
+            45, 48 -> "50"
+            in 51..57 -> "09"
+            in 61..67 -> "10"
+            in 71..77 -> "13"
+            in 80..82 -> "09"
+            in 85..86 -> "13"
+            in 95..99 -> "11"
+            else -> "03"
+        }
+        return base + if (isDay) "d" else "n"
+    }
+
+    private fun isDayTime(timeIso: String): Boolean {
+        val hour = timeIso.substringAfter("T", "").take(2).toIntOrNull() ?: return true
+        return hour in 6..18
     }
 
     override suspend fun refresh(): Boolean {
@@ -108,9 +164,11 @@ class WeatherRepositoryImpl(
                 }
                 val parsed = json.decodeFromString<WeatherResponse>(body)
                 val now = System.currentTimeMillis() / 1000
-                _weather.value = parsed.toDomain(name, now)
+                val domain = parsed.toDomain(name, now)
+                _weather.value = domain
                 _forecast.value = parsed.toForecastDays()
                 cacheWeather(parsed, name, now)
+                persistTile(domain, wmoToOwmIcon(parsed.current.weather_code, isDayTime(parsed.current.time)))
                 true
             }
         } catch (e: IOException) {
@@ -166,7 +224,27 @@ class WeatherRepositoryImpl(
         const val KEY_CACHE = "weather_response_json"
         const val KEY_NAME = "weather_location_name"
         const val KEY_FETCHED_AT = "weather_fetched_at"
+        const val TILE_PREFS_NAME = "standard_settings"
+        const val KEY_TILE_TEMP = "weather_temp"
+        const val KEY_TILE_CONDITION = "weather_condition"
+        const val KEY_TILE_CITY = "weather_city"
+        const val KEY_TILE_ICON = "weather_icon"
+        const val KEY_TILE_UPDATED = "weather_updated"
+        const val REFRESH_INTERVAL_MS = 30L * 60L * 1000L
         const val BASE_URL = "https://api.open-meteo.com/v1/forecast"
         const val GEO_URL = "https://geocoding-api.open-meteo.com/v1/search"
     }
+}
+
+fun weatherIconToGlyph(iconCode: String): String = when (iconCode.take(2)) {
+    "01" -> "\u2600"
+    "02" -> "\u26C5"
+    "03" -> "\u2601"
+    "04" -> "\u2601"
+    "09" -> "\u2601"
+    "10" -> "\u2601"
+    "11" -> "\u26C8"
+    "13" -> "\u2744"
+    "50" -> "\u2601"
+    else -> "\u2601"
 }

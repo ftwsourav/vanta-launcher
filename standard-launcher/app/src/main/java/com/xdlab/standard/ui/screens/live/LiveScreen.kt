@@ -93,6 +93,12 @@ fun LiveScreen(
     var granted by remember { mutableStateOf(checkGranted()) }
     var notifications by remember { mutableStateOf<List<NotifItem>>(emptyList()) }
     var dismissed by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var mutedApps by remember { mutableStateOf(loadMutedApps(context)) }
+    val toggleMute = { pkg: String ->
+        val updated = if (pkg in mutedApps) mutedApps - pkg else mutedApps + pkg
+        saveMutedApps(context, updated)
+        mutedApps = updated
+    }
 
     LifecycleResumeEffect(Unit) {
         granted = checkGranted()
@@ -164,6 +170,8 @@ fun LiveScreen(
                 GrantAccessTile { openNotificationListenerSettings(context) }
             }
         } else {
+            var tileIndex = 0
+
             if (visible.isNotEmpty()) {
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
@@ -218,11 +226,15 @@ fun LiveScreen(
                     }
                 }
             } else {
-                val actionable = visible.filter { it.isActionable }
-                val regular = visible.filter { !it.isActionable }
+                val mutedVisible = visible.filter { it.packageName in mutedApps }
+                val activeVisible = visible.filter { it.packageName !in mutedApps }
+                val actionable = activeVisible.filter { it.isActionable }
+                val regular = activeVisible.filter { !it.isActionable }
+                val regularGrouped = regular.groupBy { it.packageName }
+                val mutedGrouped = mutedVisible.groupBy { it.packageName }
 
                 if (actionable.isNotEmpty()) {
-                    TileEntrance(1) {
+                    TileEntrance(tileIndex++) {
                         Text(
                             text = "ACTION REQUIRED",
                             color = colors.accent,
@@ -232,46 +244,127 @@ fun LiveScreen(
                             modifier = Modifier.padding(start = 4.dp, bottom = 4.dp)
                         )
                     }
-                    actionable.forEachIndexed { i, notif ->
-                        TileEntrance(i + 2) {
+                    actionable.forEach { notif ->
+                        TileEntrance(tileIndex++) {
                             NotifCard(
                                 notif = notif,
                                 isActionable = true,
+                                isMuted = false,
                                 onOpen = {
                                     dismissed = dismissed + (notif.packageName + notif.timestamp)
                                     launchApp(context, notif.packageName)
                                 },
                                 onDismiss = {
                                     dismissed = dismissed + (notif.packageName + notif.timestamp)
-                                }
+                                },
+                                onToggleMute = { toggleMute(notif.packageName) }
                             )
                         }
                     }
                 }
 
-                TileEntrance(actionable.size + 2) {
-                    Text(
-                        text = "NOTIFICATIONS",
-                        color = colors.ink,
-                        fontFamily = JetBrainsMono,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 11.sp,
-                        modifier = Modifier.padding(start = 4.dp, top = 8.dp, bottom = 4.dp)
-                    )
-                }
-                regular.forEachIndexed { i, notif ->
-                    TileEntrance(actionable.size + i + 3) {
-                        NotifCard(
-                            notif = notif,
-                            isActionable = false,
-                            onOpen = {
-                                dismissed = dismissed + (notif.packageName + notif.timestamp)
-                                launchApp(context, notif.packageName)
-                            },
-                            onDismiss = {
-                                dismissed = dismissed + (notif.packageName + notif.timestamp)
-                            }
+                if (regular.isNotEmpty()) {
+                    TileEntrance(tileIndex++) {
+                        Text(
+                            text = "NOTIFICATIONS",
+                            color = colors.ink,
+                            fontFamily = JetBrainsMono,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 11.sp,
+                            modifier = Modifier.padding(start = 4.dp, top = 8.dp, bottom = 4.dp)
                         )
+                    }
+                    regularGrouped.values.forEach { group ->
+                        TileEntrance(tileIndex++) {
+                            NotifGroup(
+                                notifs = group,
+                                isMuted = false,
+                                onOpen = {
+                                    dismissed = dismissed + (it.packageName + it.timestamp)
+                                    launchApp(context, it.packageName)
+                                },
+                                onDismiss = {
+                                    dismissed = dismissed + (it.packageName + it.timestamp)
+                                },
+                                onToggleMute = { pkg -> toggleMute(pkg) }
+                            )
+                        }
+                    }
+                }
+
+                if (mutedVisible.isNotEmpty()) {
+                    TileEntrance(tileIndex++) {
+                        Text(
+                            text = "MUTED",
+                            color = colors.ink.copy(alpha = 0.4f),
+                            fontFamily = JetBrainsMono,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 11.sp,
+                            modifier = Modifier.padding(start = 4.dp, top = 8.dp, bottom = 4.dp)
+                        )
+                    }
+                    mutedGrouped.values.forEach { group ->
+                        TileEntrance(tileIndex++) {
+                            NotifGroup(
+                                notifs = group,
+                                isMuted = true,
+                                onOpen = {
+                                    dismissed = dismissed + (it.packageName + it.timestamp)
+                                    launchApp(context, it.packageName)
+                                },
+                                onDismiss = {
+                                    dismissed = dismissed + (it.packageName + it.timestamp)
+                                },
+                                onToggleMute = { pkg -> toggleMute(pkg) }
+                            )
+                        }
+                    }
+                }
+            }
+
+            if (mutedApps.isNotEmpty()) {
+                TileEntrance(tileIndex++) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .border(1.dp, colors.ink.copy(alpha = 0.2f))
+                            .background(colors.tile)
+                            .padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            text = "MUTED APPS",
+                            color = colors.ink.copy(alpha = 0.4f),
+                            fontFamily = JetBrainsMono,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 11.sp
+                        )
+                        mutedApps.forEach { pkg ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = resolveAppName(context, pkg),
+                                    color = colors.ink.copy(alpha = 0.5f),
+                                    fontFamily = JetBrainsMono,
+                                    fontSize = 11.sp,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                Text(
+                                    text = "UNMUTE",
+                                    color = colors.accent,
+                                    fontFamily = JetBrainsMono,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 10.sp,
+                                    modifier = Modifier.clickable {
+                                        haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                        toggleMute(pkg)
+                                    }
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -562,8 +655,10 @@ private fun GrantAccessTile(onTap: () -> Unit) {
 private fun NotifCard(
     notif: NotifItem,
     isActionable: Boolean,
+    isMuted: Boolean = false,
     onOpen: () -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    onToggleMute: () -> Unit = {}
 ) {
     val colors = LocalAppTheme.current
     val context = LocalContext.current
@@ -571,9 +666,9 @@ private fun NotifCard(
     var menuExpanded by remember { mutableStateOf(false) }
     val pulse = rememberInfiniteTransition(label = "cardPulse")
     val pulseAlpha by pulse.animateFloat(
-        initialValue = if (isActionable) 0.3f else 0.1f,
-        targetValue = if (isActionable) 1f else 0.3f,
-        animationSpec = infiniteRepeatable(tween(if (isActionable) 800 else 1500), RepeatMode.Reverse),
+        initialValue = if (isActionable && !isMuted) 0.3f else 0.1f,
+        targetValue = if (isActionable && !isMuted) 1f else 0.3f,
+        animationSpec = infiniteRepeatable(tween(if (isActionable && !isMuted) 800 else 1500), RepeatMode.Reverse),
         label = "borderPulse"
     )
 
@@ -582,8 +677,12 @@ private fun NotifCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .border(
-                    width = if (isActionable) 2.dp else 1.dp,
-                    color = if (isActionable) colors.accent.copy(alpha = pulseAlpha) else colors.ink.copy(alpha = 0.3f)
+                    width = if (isActionable && !isMuted) 2.dp else 1.dp,
+                    color = when {
+                        isMuted -> colors.ink.copy(alpha = 0.2f)
+                        isActionable -> colors.accent.copy(alpha = pulseAlpha)
+                        else -> colors.ink.copy(alpha = 0.3f)
+                    }
                 )
                 .background(colors.tile.copy(alpha = 0.9f))
                 .combinedClickable(
@@ -609,15 +708,27 @@ private fun NotifCard(
             AppIcon(packageName = notif.packageName, size = 40.dp)
             Spacer(Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = notif.appName.uppercase(),
-                    color = colors.ink.copy(alpha = 0.6f),
-                    fontFamily = JetBrainsMono,
-                    fontSize = 9.sp
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = notif.appName.uppercase(),
+                        color = if (isMuted) colors.ink.copy(alpha = 0.4f) else colors.ink.copy(alpha = 0.6f),
+                        fontFamily = JetBrainsMono,
+                        fontSize = 9.sp
+                    )
+                    if (isMuted) {
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            text = "MUTED",
+                            color = colors.ink.copy(alpha = 0.4f),
+                            fontFamily = JetBrainsMono,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 8.sp
+                        )
+                    }
+                }
                 Text(
                     text = notif.title,
-                    color = colors.ink,
+                    color = if (isMuted) colors.ink.copy(alpha = 0.4f) else colors.ink,
                     fontFamily = SpaceGrotesk,
                     fontWeight = FontWeight.Black,
                     fontSize = 14.sp,
@@ -626,7 +737,7 @@ private fun NotifCard(
                 if (notif.text.isNotBlank()) {
                     Text(
                         text = notif.text,
-                        color = colors.ink.copy(alpha = 0.7f),
+                        color = if (isMuted) colors.ink.copy(alpha = 0.4f) else colors.ink.copy(alpha = 0.7f),
                         fontFamily = SpaceGrotesk,
                         fontSize = 12.sp,
                         maxLines = 2
@@ -640,7 +751,7 @@ private fun NotifCard(
                     modifier = Modifier.padding(top = 2.dp)
                 )
             }
-            if (isActionable) {
+            if (isActionable && !isMuted) {
                 Text(
                     text = "→",
                     color = colors.accent,
@@ -663,19 +774,113 @@ private fun NotifCard(
                 }
             )
             DropdownMenuItem(
-                text = { Text("APP SETTINGS") },
+                text = { Text("APP NOTIFICATION SETTINGS") },
                 onClick = {
                     menuExpanded = false
-                    Toast.makeText(context, "APP SETTINGS", Toast.LENGTH_SHORT).show()
+                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    openAppNotificationSettings(context, notif.packageName)
                 }
             )
             DropdownMenuItem(
-                text = { Text("BLOCK NOTIFICATIONS") },
+                text = { Text("MANAGE NOTIFICATIONS") },
                 onClick = {
                     menuExpanded = false
-                    Toast.makeText(context, "BLOCK NOTIFICATIONS", Toast.LENGTH_SHORT).show()
+                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    openAppNotificationSettings(context, notif.packageName)
                 }
             )
+            DropdownMenuItem(
+                text = { Text(if (isMuted) "UNMUTE APP" else "MUTE APP") },
+                onClick = {
+                    menuExpanded = false
+                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    onToggleMute()
+                }
+            )
+        }
+    }
+}
+
+@Composable
+private fun NotifGroup(
+    notifs: List<NotifItem>,
+    isMuted: Boolean,
+    onOpen: (NotifItem) -> Unit,
+    onDismiss: (NotifItem) -> Unit,
+    onToggleMute: (String) -> Unit
+) {
+    val colors = LocalAppTheme.current
+    val haptics = LocalHapticFeedback.current
+    val context = LocalContext.current
+    val first = notifs.first()
+    var expanded by remember(first.packageName) { mutableStateOf(false) }
+
+    if (notifs.size == 1) {
+        NotifCard(
+            notif = first,
+            isActionable = false,
+            isMuted = isMuted,
+            onOpen = { onOpen(first) },
+            onDismiss = { onDismiss(first) },
+            onToggleMute = { onToggleMute(first.packageName) }
+        )
+    } else {
+        val rest = notifs.drop(1)
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(1.dp, if (isMuted) colors.ink.copy(alpha = 0.2f) else colors.ink.copy(alpha = 0.5f))
+                    .background(colors.tile)
+                    .clickable {
+                        haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        launchApp(context, first.packageName)
+                    }
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                AppIcon(packageName = first.packageName, size = 24.dp)
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = "${first.appName} (${notifs.size})",
+                    color = if (isMuted) colors.ink.copy(alpha = 0.4f) else colors.ink,
+                    fontFamily = JetBrainsMono,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 11.sp,
+                    modifier = Modifier.weight(1f)
+                )
+                Text(
+                    text = if (expanded) "-${rest.size} LESS" else "+${rest.size} MORE",
+                    color = if (isMuted) colors.ink.copy(alpha = 0.4f) else colors.accent,
+                    fontFamily = JetBrainsMono,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 11.sp,
+                    modifier = Modifier.clickable {
+                        haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        expanded = !expanded
+                    }
+                )
+            }
+            NotifCard(
+                notif = first,
+                isActionable = false,
+                isMuted = isMuted,
+                onOpen = { onOpen(first) },
+                onDismiss = { onDismiss(first) },
+                onToggleMute = { onToggleMute(first.packageName) }
+            )
+            if (expanded) {
+                rest.forEach { n ->
+                    NotifCard(
+                        notif = n,
+                        isActionable = false,
+                        isMuted = isMuted,
+                        onOpen = { onOpen(n) },
+                        onDismiss = { onDismiss(n) },
+                        onToggleMute = { onToggleMute(n.packageName) }
+                    )
+                }
+            }
         }
     }
 }
@@ -736,4 +941,32 @@ private fun openNotificationListenerSettings(context: Context) {
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         context.startActivity(intent)
     } catch (e: Exception) { }
+}
+
+private fun loadMutedApps(context: Context): Set<String> {
+    val prefs = context.getSharedPreferences("standard_muted_apps", Context.MODE_PRIVATE)
+    return prefs.getString("apps", "")?.split(",")?.filter { it.isNotBlank() }?.toSet() ?: emptySet()
+}
+
+private fun saveMutedApps(context: Context, apps: Set<String>) {
+    val prefs = context.getSharedPreferences("standard_muted_apps", Context.MODE_PRIVATE)
+    prefs.edit().putString("apps", apps.joinToString(",")).apply()
+}
+
+private fun openAppNotificationSettings(context: Context, packageName: String) {
+    try {
+        val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+        intent.putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        context.startActivity(intent)
+    } catch (e: Exception) { }
+}
+
+private fun resolveAppName(context: Context, packageName: String): String {
+    return try {
+        val pm = context.packageManager
+        pm.getApplicationLabel(pm.getApplicationInfo(packageName, 0)).toString().uppercase()
+    } catch (e: Exception) {
+        packageName.substringAfterLast('.').uppercase()
+    }
 }

@@ -56,6 +56,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -133,6 +134,13 @@ fun SettingsScreen(viewModel: StandardAppViewModel, onClose: () -> Unit) {
     var randomFlip by remember { mutableStateOf(prefs.getBoolean("random_flip", true)) }
     var notifPreviews by remember { mutableStateOf(prefs.getBoolean("notif_previews", true)) }
     var customAccent by remember { mutableStateOf(prefs.getLong("custom_accent", 0L)) }
+    var wallpaperPreset by remember { mutableIntStateOf(prefs.getInt("wallpaper_preset", 0).coerceIn(0, 5)) }
+    var statusBarVisible by remember { mutableStateOf(prefs.getBoolean("status_bar_visible", true)) }
+    var statusBarTransparent by remember { mutableStateOf(prefs.getBoolean("status_bar_transparent", true)) }
+    var statusBarIcons by remember { mutableStateOf(prefs.getString("status_bar_icons", "AUTO") ?: "AUTO") }
+    var liveWeather by remember { mutableStateOf(prefs.getBoolean("live_weather", true)) }
+    var liveClock by remember { mutableStateOf(prefs.getBoolean("live_clock", true)) }
+    var liveBattery by remember { mutableStateOf(prefs.getBoolean("live_battery", true)) }
     val hiddenPrefs = remember { context.getSharedPreferences("standard_hidden", Context.MODE_PRIVATE) }
     var hiddenPackages by remember { mutableStateOf<List<String>>(hiddenPrefs.getStringSet("hidden", emptySet())?.toList() ?: emptyList()) }
     var appearanceExpanded by remember { mutableStateOf(true) }
@@ -220,6 +228,20 @@ fun SettingsScreen(viewModel: StandardAppViewModel, onClose: () -> Unit) {
                     wallpaperBg = it
                     prefs.edit().putBoolean("wallpaper_bg", it).apply()
                 }
+                ValueRow("WALLPAPER", "SET WALLPAPER") {
+                    tick()
+                    Toast.makeText(context, "OPENING WALLPAPER PICKER", Toast.LENGTH_SHORT).show()
+                    context.startActivity(Intent(Intent.ACTION_SET_WALLPAPER).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                }
+                MonoLabel("WALLPAPER PRESETS", size = 10.sp, color = colors.muted, modifier = Modifier.padding(top = 10.dp, bottom = 6.dp))
+                WallpaperPresetSwatches(
+                    selected = wallpaperPreset,
+                    onSelect = {
+                        tick()
+                        wallpaperPreset = it
+                        prefs.edit().putInt("wallpaper_preset", it).apply()
+                    }
+                )
                 ValueRow(
                     "ICON STYLE",
                     when (settings.iconStyle) {
@@ -238,6 +260,27 @@ fun SettingsScreen(viewModel: StandardAppViewModel, onClose: () -> Unit) {
                     tick()
                     customAccent = color
                     prefs.edit().putLong("custom_accent", color).apply()
+                }
+                SectionHeader("STATUS BAR")
+                ToggleRow("SHOW STATUS BAR", statusBarVisible) {
+                    tick()
+                    statusBarVisible = it
+                    prefs.edit().putBoolean("status_bar_visible", it).apply()
+                }
+                ToggleRow("TRANSPARENT STATUS BAR", statusBarTransparent) {
+                    tick()
+                    statusBarTransparent = it
+                    prefs.edit().putBoolean("status_bar_transparent", it).apply()
+                }
+                ValueRow("STATUS BAR ICONS", statusBarIcons) {
+                    tick()
+                    val next = when (statusBarIcons) {
+                        "LIGHT" -> "DARK"
+                        "DARK" -> "AUTO"
+                        else -> "LIGHT"
+                    }
+                    statusBarIcons = next
+                    prefs.edit().putString("status_bar_icons", next).apply()
                 }
             }
 
@@ -260,6 +303,22 @@ fun SettingsScreen(viewModel: StandardAppViewModel, onClose: () -> Unit) {
                     tick()
                     notifPreviews = it
                     prefs.edit().putBoolean("notif_previews", it).apply()
+                }
+                SectionHeader("LIVE TILE CONTENT")
+                ToggleRow("WEATHER UPDATES", liveWeather) {
+                    tick()
+                    liveWeather = it
+                    prefs.edit().putBoolean("live_weather", it).apply()
+                }
+                ToggleRow("CLOCK LIVE TILE", liveClock) {
+                    tick()
+                    liveClock = it
+                    prefs.edit().putBoolean("live_clock", it).apply()
+                }
+                ToggleRow("BATTERY LIVE TILE", liveBattery) {
+                    tick()
+                    liveBattery = it
+                    prefs.edit().putBoolean("live_battery", it).apply()
                 }
                 SectionHeader("HOME MODULES")
                 HomeModule.entries.forEach { module ->
@@ -1071,6 +1130,52 @@ private fun swatchColor(id: String): Long = when (id) {
     ThemeId.PURPLE -> 0xFF5B2FB5
     ThemeId.ORANGE -> 0xFFB8541E
     else -> 0xFF111111
+}
+
+private data class WallpaperPreset(val name: String, val colors: List<Long>)
+
+private val WallpaperPresets = listOf(
+    WallpaperPreset("OFF", listOf(0xFF222222L)),
+    WallpaperPreset("SUNSET", listOf(0xFFFF7043L, 0xFFEC407AL)),
+    WallpaperPreset("OCEAN", listOf(0xFF1E88E5L, 0xFF00897BL)),
+    WallpaperPreset("FOREST", listOf(0xFF43A047L, 0xFF1B1B1BL)),
+    WallpaperPreset("DUSK", listOf(0xFF7B1FA2L, 0xFF1E88E5L)),
+    WallpaperPreset("MONO", listOf(0xFF9E9E9EL, 0xFF000000L))
+)
+
+@Composable
+private fun WallpaperPresetSwatches(selected: Int, onSelect: (Int) -> Unit) {
+    val colors = LocalAppTheme.current
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        WallpaperPresets.forEachIndexed { index, preset ->
+            val isSelected = index == selected
+            val brush = if (preset.colors.size >= 2) {
+                Brush.horizontalGradient(preset.colors.map { Color(it) })
+            } else {
+                Brush.verticalGradient(preset.colors.map { Color(it) })
+            }
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .plainClickable { onSelect(index) }
+                    .semantics { contentDescription = preset.name },
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(44.dp)
+                        .background(brush)
+                        .border(if (isSelected) 3.dp else 2.dp, if (isSelected) colors.accent else colors.ink.copy(alpha = 0.35f))
+                )
+                Spacer(Modifier.height(4.dp))
+                MonoLabel(preset.name, size = 9.sp, color = if (isSelected) colors.ink else colors.muted)
+            }
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------------------------
