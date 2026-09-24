@@ -1169,7 +1169,7 @@ private fun WallpaperPresetSwatches(selected: Int, onSelect: (Int) -> Unit) {
             val brush = if (preset.colors.size >= 2) {
                 Brush.horizontalGradient(preset.colors.map { Color(it) })
             } else {
-                Brush.verticalGradient(preset.colors.map { Color(it) })
+                Brush.horizontalGradient(listOf(Color(preset.colors.first()), Color(preset.colors.first())))
             }
             Column(
                 modifier = Modifier

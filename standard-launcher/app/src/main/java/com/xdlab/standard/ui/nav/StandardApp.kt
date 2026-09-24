@@ -79,6 +79,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 
+private var splashShownThisProcess = false
+
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun StandardApp(viewModel: StandardAppViewModel) {
@@ -88,7 +90,10 @@ fun StandardApp(viewModel: StandardAppViewModel) {
     val haptic = LocalHapticFeedback.current
 
     val prefs = remember { context.getSharedPreferences("standard_settings", Context.MODE_PRIVATE) }
-    var showSplash by remember { mutableStateOf(settings.cinematicIntro) }
+    var showSplash by remember { mutableStateOf(settings.cinematicIntro && !splashShownThisProcess) }
+    LaunchedEffect(showSplash) {
+        if (showSplash) splashShownThisProcess = true
+    }
     var showSettings by rememberSaveable { mutableStateOf(false) }
     var showGlance by remember { mutableStateOf(false) }
     var showSearch by remember { mutableStateOf(false) }
