@@ -1,4 +1,4 @@
-package com.xdlab.standard.ui.screens.home
+﻿package com.xdlab.standard.ui.screens.home
 
 import android.content.Intent
 import android.net.Uri
@@ -208,7 +208,6 @@ fun HomeScreen(
     val launch: (String) -> Unit = { viewModel.launchApp(context, it) }
     val fontScale = LocalDensity.current.fontScale.coerceIn(1f, 1.3f)
     val scrollState = rememberScrollState()
-    val safeBottom = WindowInsets.safeDrawing.asPaddingValues().calculateBottomPadding()
 
     Box(modifier = Modifier
         .fillMaxSize()
@@ -270,7 +269,7 @@ fun HomeScreen(
                         val c = LocalTileColors.current.content
                         Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.SpaceBetween) {
                             HeadlineText("PIN APPS", 32.sp, color = c)
-                            MonoLabel("IN DRAWER →", size = 10.sp, color = c)
+                            MonoLabel("IN DRAWER â†’", size = 10.sp, color = c)
                         }
                     }
                 } else {
@@ -350,7 +349,7 @@ fun HomeScreen(
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
                             Text(
-                                text = "＋",
+                                text = "ï¼‹",
                                 style = StandardType.headline(32.sp),
                                 color = accent
                             )
@@ -361,21 +360,8 @@ fun HomeScreen(
                     QuoteLine(quotes = settings.quotes, modifier = Modifier.weight(2f).padding(horizontal = 6.dp))
                     SettingsCaption(modifier = Modifier.weight(1f).fillMaxHeight(), onClick = onOpenSettings)
                 }
-
-                Spacer(Modifier.height(84.dp))
             }
         }
-
-        HomeDock(
-            editMode = editMode,
-            pinned = pinned,
-            onLaunch = launch,
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp)
-                .padding(bottom = safeBottom)
-        )
 
         if (HomeModule.QUICK_SETTINGS in modules) {
             QuickSettingsFab(
@@ -419,7 +405,7 @@ private fun EditBar(onDone: () -> Unit) {
         ) {
             Box(Modifier.size(8.dp).background(colors.accent).alpha(pulse))
             MonoLabel("EDITING", size = 10.sp, color = colors.ink, weight = FontWeight.Bold, modifier = Modifier.alpha(pulse))
-            MonoLabel("// TAP: SIZE  ◀ ▶: MOVE  ✕: UNPIN  ■: ACCENT", size = 10.sp, color = colors.ink, modifier = Modifier.weight(1f))
+            MonoLabel("// TAP: SIZE  â—€ â–¶: MOVE  âœ•: UNPIN  â– : ACCENT", size = 10.sp, color = colors.ink, modifier = Modifier.weight(1f))
         }
         Spacer(Modifier.width(TileDefaults.Gutter))
         Box(
@@ -533,7 +519,7 @@ private fun HomeNowClock(nowPlaying: MediaInfo?, modifier: Modifier = Modifier) 
         }
     }
     val time = SimpleDateFormat("h:mm", Locale.getDefault()).format(Date(now))
-    val date = SimpleDateFormat("EEEE · MMM d", Locale.getDefault()).format(Date(now)).uppercase(Locale.getDefault())
+    val date = SimpleDateFormat("EEEE Â· MMM d", Locale.getDefault()).format(Date(now)).uppercase(Locale.getDefault())
     Column(modifier = modifier) {
         NowPlayingMini(nowPlaying = nowPlaying)
         Text(
@@ -570,7 +556,7 @@ private fun NowPlayingMini(nowPlaying: MediaInfo?, modifier: Modifier = Modifier
         ) {
             Box(Modifier.size(10.dp).background(colors.accent))
             Column {
-                MonoLabel("NOW PLAYING · " + title, size = 11.sp, color = colors.ink, weight = FontWeight.Bold, maxLines = 1)
+                MonoLabel("NOW PLAYING Â· " + title, size = 11.sp, color = colors.ink, weight = FontWeight.Bold, maxLines = 1)
                 MonoLabel("MUSIC ACTIVE", size = 9.sp, color = colors.muted, weight = FontWeight.Medium)
             }
         }
@@ -719,7 +705,7 @@ private fun renderRow(
                                     2 -> 32.sp
                                     else -> 40.sp
                                 },
-                                trailing = if (app.isAccent) "→" else null,
+                                trailing = if (app.isAccent) "â†’" else null,
                                 editMode = editMode,
                                 onCycleSize = cycle,
                                 onLongPress = { if (editMode) enterEdit() else onContextMenuTile(app) }
@@ -777,7 +763,7 @@ private fun renderRow(
                                     text = { Text("ADD WIDGET") },
                                     onClick = {
                                         onContextMenuTile(null)
-                                        Toast.makeText(context, "WIDGET PICKER — COMING SOON", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, "WIDGET PICKER â€” COMING SOON", Toast.LENGTH_SHORT).show()
                                     }
                                 )
                                 DropdownMenuItem(
@@ -811,13 +797,13 @@ private fun EditControls(app: AppItem, viewModel: StandardAppViewModel) {
             Box(Modifier.size(10.dp).background(if (app.isAccent) colors.accent else colors.onInk))
         }
         EditButton("Unpin", Modifier.align(Alignment.TopEnd), onTap = { viewModel.unpin(app.packageName) }) {
-            MonoLabel("✕", size = 12.sp, color = colors.onInk, weight = FontWeight.Bold)
+            MonoLabel("âœ•", size = 12.sp, color = colors.onInk, weight = FontWeight.Bold)
         }
         EditButton("Move earlier", Modifier.align(Alignment.BottomStart), onTap = { viewModel.movePinned(app.packageName, -1) }) {
-            MonoLabel("◀", size = 11.sp, color = colors.onInk, weight = FontWeight.Bold)
+            MonoLabel("â—€", size = 11.sp, color = colors.onInk, weight = FontWeight.Bold)
         }
         EditButton("Move later", Modifier.align(Alignment.BottomEnd), onTap = { viewModel.movePinned(app.packageName, 1) }) {
-            MonoLabel("▶", size = 11.sp, color = colors.onInk, weight = FontWeight.Bold)
+            MonoLabel("â–¶", size = 11.sp, color = colors.onInk, weight = FontWeight.Bold)
         }
         if (app.tileSize != TileSize.SMALL) {
             ResizeHandle(onResize = resize, modifier = Modifier.align(Alignment.BottomCenter))
@@ -905,8 +891,8 @@ private fun QuoteLine(quotes: List<String>, modifier: Modifier = Modifier) {
     }
     Crossfade(targetState = index, animationSpec = tween(600), label = "quote", modifier = modifier) { i ->
         Column {
-            MonoLabel("“" + quotes[i % quotes.size] + "”", size = 14.sp, color = ink, maxLines = 4)
-            MonoLabel("—", size = 14.sp, color = ink)
+            MonoLabel("â€œ" + quotes[i % quotes.size] + "â€", size = 14.sp, color = ink, maxLines = 4)
+            MonoLabel("â€”", size = 14.sp, color = ink)
         }
     }
 }
@@ -926,128 +912,6 @@ private fun SettingsCaption(modifier: Modifier = Modifier, onClick: () -> Unit) 
         Spacer(Modifier.height(6.dp))
         Box(Modifier.fillMaxWidth().height(1.dp).background(colors.ink))
         Spacer(Modifier.height(4.dp))
-        MonoLabel("SETTINGS →", size = 9.sp, color = colors.muted)
-    }
-}
-
-@Composable
-private fun HomeDock(
-    editMode: Boolean,
-    pinned: List<AppItem>,
-    onLaunch: (String) -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val context = LocalContext.current
-    val colors = LocalAppTheme.current
-    val prefs = remember { context.getSharedPreferences("standard_dock", android.content.Context.MODE_PRIVATE) }
-    var dockPackages by remember {
-        mutableStateOf(prefs.getString("packages", "")?.split(",")?.filter { it.isNotBlank() } ?: emptyList())
-    }
-    LaunchedEffect(pinned) {
-        if (!prefs.contains("packages") && dockPackages.isEmpty()) {
-            val defaults = pinned.take(4).map { it.packageName }.ifEmpty {
-                listOf(
-                    listOf("com.android.dialer", "com.android.phone", "com.samsung.android.dialer"),
-                    listOf("com.android.contacts", "com.samsung.android.app.contacts"),
-                    listOf("com.android.mms", "com.google.android.apps.messaging", "com.samsung.android.messaging"),
-                    listOf("com.android.browser", "com.android.chrome", "org.mozilla.firefox", "com.brave.browser")
-                ).mapNotNull { candidates ->
-                    candidates.firstOrNull { pkg ->
-                        try { context.packageManager.getApplicationInfo(pkg, 0); true } catch (_: Exception) { false }
-                    }
-                }
-            }
-            if (defaults.isNotEmpty()) {
-                dockPackages = defaults
-                prefs.edit().putString("packages", defaults.joinToString(",")).apply()
-            }
-        }
-    }
-    val onRemove: (String) -> Unit = { removed ->
-        val newPackages = dockPackages.filterNot { it == removed }
-        dockPackages = newPackages
-        prefs.edit().putString("packages", newPackages.joinToString(",")).apply()
-    }
-    Tile(
-        modifier = modifier,
-        contentPadding = 0.dp
-    ) {
-        Column(modifier = Modifier.fillMaxWidth()) {
-            Box(Modifier.fillMaxWidth().height(1.dp).background(colors.accent))
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.SpaceEvenly,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                for (i in 0 until 4) {
-                    DockSlot(
-                        packageName = dockPackages.getOrNull(i),
-                        editMode = editMode,
-                        onLaunch = onLaunch,
-                        onRemove = onRemove
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun DockSlot(
-    packageName: String?,
-    editMode: Boolean,
-    onLaunch: (String) -> Unit,
-    onRemove: (String) -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val context = LocalContext.current
-    val colors = LocalAppTheme.current
-    val content = LocalTileColors.current.content
-    if (packageName == null) {
-        if (editMode) {
-            Box(
-                modifier = modifier
-                    .size(56.dp)
-                    .tilePress(
-                        onTap = { Toast.makeText(context, "DRAG APP HERE TO ADD", Toast.LENGTH_SHORT).show() },
-                        tilt = false
-                    )
-                    .button("Add dock app") { Toast.makeText(context, "DRAG APP HERE TO ADD", Toast.LENGTH_SHORT).show() },
-                contentAlignment = Alignment.Center
-            ) {
-                MonoLabel("+", size = 20.sp, color = colors.accent, weight = FontWeight.Bold)
-            }
-        } else {
-            Spacer(modifier.size(56.dp))
-        }
-    } else {
-        val label = remember(packageName) {
-            try {
-                context.packageManager.getApplicationLabel(
-                    context.packageManager.getApplicationInfo(packageName, 0)
-                ).toString()
-            } catch (_: Exception) {
-                packageName
-            }
-        }
-        Column(
-            modifier = modifier
-                .size(56.dp)
-                .tilePress(
-                    onTap = { onLaunch(packageName) },
-                    onLongPress = {
-                        Toast.makeText(context, "LONG PRESS TO REMOVE", Toast.LENGTH_SHORT).show()
-                        onRemove(packageName)
-                    },
-                    tilt = false
-                )
-                .button(label) { onLaunch(packageName) },
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
-        ) {
-            AppIcon(packageName = packageName, size = 32.dp)
-            Spacer(Modifier.height(2.dp))
-            MonoLabel(label, size = 9.sp, color = content, weight = FontWeight.Medium, maxLines = 1)
-        }
+        MonoLabel("SETTINGS â†’", size = 9.sp, color = colors.muted)
     }
 }

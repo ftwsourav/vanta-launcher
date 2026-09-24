@@ -21,6 +21,8 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -773,19 +775,31 @@ private fun CollapsibleSection(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun AccentColorPicker(current: Long, onPick: (Long) -> Unit) {
     val colors = LocalAppTheme.current
     val presets = remember {
         listOf(
             0xFFE53935L, 0xFFFB8C00L, 0xFFFDD835L, 0xFF43A047L,
-            0xFF00897BL, 0xFF1E88E5L, 0xFF8E24AAL, 0xFFD81B60L
+            0xFF00897BL, 0xFF1E88E5L, 0xFF8E24AAL, 0xFFD81B60L,
+            0xFFE65100L, 0xFFFF6F00L, 0xFFAFB42BL, 0xFF2E7D32L,
+            0xFF00695CL, 0xFF0277BDL, 0xFF1565C0L, 0xFF4527A0L,
+            0xFF6A1B9AL, 0xFFAD1457L, 0xFFC62828L, 0xFFEF6C00L,
+            0xFFF9A825L, 0xFF558B2FL, 0xFF00838FL, 0xFF3949ABL,
+            0xFF5E35B1L, 0xFF8E24AAL, 0xFFEC407AL, 0xFFFF7043L,
+            0xFF26A69AL, 0xFF42A5F5L, 0xFFAB47BCL, 0xFFFFCA28L,
+            0xFF66BB6AL, 0xFF26C6DAL, 0xFF7E57C2L, 0xFFFF5252L,
+            0xFFD4E157L, 0xFF80DEEAL, 0xFFB388FFL, 0xFFFF8A80L,
+            0xFFFFAB40L, 0xFFB9F6CAL, 0xFFA7FFFFL, 0xFF82B1FFL,
+            0xFFB388FFL, 0xFFFF80ABL, 0xFFFFFFFFL, 0xFF000000L
         )
     }
     Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
-        Row(
+        FlowRow(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             presets.forEach { color ->
                 val isSelected = color == current
