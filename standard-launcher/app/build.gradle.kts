@@ -14,8 +14,8 @@ android {
         applicationId = "com.xdlab.standard"
         minSdk = 30
         targetSdk = 35
-        versionCode = 49
-        versionName = "4.9"
+        versionCode = 50
+        versionName = "5.0"
         vectorDrawables { useSupportLibrary = true }
     }
 

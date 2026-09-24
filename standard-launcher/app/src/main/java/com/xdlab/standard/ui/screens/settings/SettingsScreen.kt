@@ -614,6 +614,11 @@ fun SettingsScreen(viewModel: StandardAppViewModel, onClose: () -> Unit) {
                 expanded = aboutExpanded,
                 onToggle = { aboutExpanded = !aboutExpanded }
             ) {
+                com.xdlab.standard.ui.components.VantaLogoWithWordmark(
+                    style = com.xdlab.standard.ui.components.VantaLogoStyle.MetroTile,
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 20.dp)
+                )
+                Spacer(Modifier.height(12.dp))
                 AboutRow("VERSION", version)
                 AboutRow("FONTS", "SPACE GROTESK + JETBRAINS MONO (OFL)")
                 AboutRow("WEATHER", "OPEN-METEO")

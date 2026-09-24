@@ -199,10 +199,11 @@ fun StandardApp(viewModel: StandardAppViewModel) {
             .background(colors.background)
             .then(edgeSwipeModifier)
             .then(backSwipeModifier)
-            .pointerInput(Unit) {
+            .pointerInput(activePage, showSettings, showSearch, showRecents, showQuickSettings, showOnboarding) {
                 detectVerticalDragGestures(
                     onVerticalDrag = { change, amount ->
-                        if (change.position.y < 60f && amount > 8f) {
+                        if (activePage == 0 && !showSettings && !showSearch && !showRecents && !showQuickSettings && !showOnboarding &&
+                            change.position.y < 24f && amount > 12f) {
                             showQuickSettings = true
                         }
                     }

@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="g1" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1a1a1a"/>
+      <stop offset="1" stop-color="#0a0a0a"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" fill="url(#g1)"/>
+  <rect x="48" y="48" width="416" height="416" fill="none" stroke="#fafafa" stroke-width="6"/>
+  <rect x="48" y="48" width="416" height="6" fill="#FF6F00"/>
+  <path d="M140 140 L256 392 L372 140 L300 140 L256 250 L212 140 Z" fill="#fafafa"/>
+  <text x="256" y="470" text-anchor="middle" font-family="Courier New, monospace" font-weight="900" font-size="22" fill="#666" letter-spacing="6">VANTA</text>
+</svg>

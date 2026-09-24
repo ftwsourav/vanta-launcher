@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <rect width="512" height="512" fill="#0a0a0a"/>
+  <rect x="56" y="56" width="180" height="180" fill="#FF6F00"/>
+  <rect x="276" y="56" width="180" height="180" fill="#fafafa"/>
+  <rect x="56" y="276" width="180" height="180" fill="#fafafa"/>
+  <rect x="276" y="276" width="180" height="180" fill="#FF6F00"/>
+  <text x="256" y="230" text-anchor="middle" font-family="Arial Black, Arial, sans-serif" font-weight="900" font-size="140" fill="#0a0a0a">V</text>
+  <text x="256" y="470" text-anchor="middle" font-family="Courier New, monospace" font-weight="900" font-size="20" fill="#666" letter-spacing="6">VANTA</text>
+</svg>
