@@ -24,6 +24,7 @@ import com.xdlab.standard.domain.model.WeatherLocation
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import kotlin.random.Random
 
 class StandardAppViewModel(private val container: AppContainer) : ViewModel() {
 
@@ -100,6 +101,53 @@ class StandardAppViewModel(private val container: AppContainer) : ViewModel() {
 
     fun setAccent(packageName: String?) {
         viewModelScope.launch { container.appRepository.setAccent(packageName) }
+    }
+
+    private val _accentApps = MutableStateFlow<List<String>>(emptyList())
+    private val _accentMode = MutableStateFlow("manual")
+    val accentApps: StateFlow<List<String>> = _accentApps
+    val accentMode: StateFlow<String> = _accentMode
+
+    private var cachedRandomIndex = 0
+    private var cachedRandomTick = -1
+
+    fun setAccentApps(packages: List<String>) {
+        val cleaned = packages.filter { it.isNotBlank() }.distinct().take(5)
+        _accentApps.value = cleaned
+        viewModelScope.launch {
+            val active = getActiveAccentApp()
+            container.appRepository.setAccent(active)
+        }
+    }
+
+    fun setAccentMode(mode: String) {
+        val normalized = if (mode == "random" || mode == "rotate") mode else "manual"
+        _accentMode.value = normalized
+        viewModelScope.launch {
+            val active = getActiveAccentApp()
+            if (active != null) container.appRepository.setAccent(active)
+        }
+    }
+
+    fun getActiveAccentApp(): String? {
+        val apps = _accentApps.value
+        val mode = _accentMode.value
+        if (apps.isEmpty()) return null
+        return when (mode) {
+            "random" -> {
+                val tick = homeTick.value
+                if (tick != cachedRandomTick || cachedRandomIndex >= apps.size) {
+                    cachedRandomTick = tick
+                    cachedRandomIndex = Random.nextInt(apps.size)
+                }
+                apps[cachedRandomIndex]
+            }
+            "rotate" -> {
+                val idx = ((System.currentTimeMillis() / 30000L) % apps.size).toInt()
+                apps[idx]
+            }
+            else -> apps.firstOrNull()
+        }
     }
 
     fun setTileSize(packageName: String, size: TileSize) {

@@ -2,6 +2,10 @@ package com.xdlab.standard.ui.screens.focus
 
 import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
+import android.os.SystemClock
+import android.provider.AlarmClock
+import android.view.HapticFeedbackConstants
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -46,6 +50,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.res.stringResource
@@ -85,6 +90,9 @@ import kotlinx.coroutines.delay
 
 private const val KEY_IMAGE = "image_uri"
 private const val KEY_NOTES = "focus_notes"
+private const val KEY_SW_RUNNING = "stopwatch_running"
+private const val KEY_SW_START = "stopwatch_start"
+private const val KEY_SW_ACCUMULATED = "stopwatch_accumulated"
 
 /** Mockup columns: the photo/callout side is a little narrower than the rows/grid side. */
 private const val LEFT = 1f
@@ -153,8 +161,13 @@ fun FocusScreen(viewModel: StandardAppViewModel, onOpenSettings: () -> Unit = {}
             .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(TileDefaults.Gutter)
     ) {
-        // SUN / 06 SEP + caption on the paper, weather tile beside it.
+        // Quick note capture; notes persisted to focus_prefs.
         TileEntrance(0) {
+            QuickNoteTile(context, Modifier.fillMaxWidth())
+        }
+
+        // SUN / 06 SEP + caption on the paper, weather tile beside it.
+        TileEntrance(1) {
             Row(Modifier.fillMaxWidth().height(HeroHeight), horizontalArrangement = Arrangement.spacedBy(TileDefaults.Gutter)) {
                 val ink = LocalAppTheme.current.ink
                 Column(Modifier.weight(LEFT).fillMaxHeight(), verticalArrangement = Arrangement.SpaceBetween) {
@@ -178,17 +191,25 @@ fun FocusScreen(viewModel: StandardAppViewModel, onOpenSettings: () -> Unit = {}
         }
 
         // Stopwatch counts up; ring fills each minute, laps below.
-        TileEntrance(1) {
-            StopwatchTile(Modifier.fillMaxWidth())
+        TileEntrance(2) {
+            StopwatchTile(Modifier.fillMaxWidth(), prefs)
+        }
+
+        TileEntrance(3) {
+            QuickTimerTile(Modifier.fillMaxWidth())
+        }
+
+        TileEntrance(4) {
+            OpenClockButton(Modifier.fillMaxWidth())
         }
 
         // Productivity suggestions: 4 apps in a 2x2 grid.
-        TileEntrance(2) {
+        TileEntrance(5) {
             ProductivitySuggestionsTile(context, viewModel, Modifier.fillMaxWidth())
         }
 
         // Photo tile beside numbered rows 01..06.
-        TileEntrance(3) {
+        TileEntrance(6) {
             Row(Modifier.fillMaxWidth().height(RowsHeight), horizontalArrangement = Arrangement.spacedBy(TileDefaults.Gutter)) {
                 PhotoTile(
                     uri = imageUri,
@@ -218,7 +239,7 @@ fun FocusScreen(viewModel: StandardAppViewModel, onOpenSettings: () -> Unit = {}
         }
 
         // LESS SCROLLING MORE DOING. beside the 2x2 grid 07..10.
-        TileEntrance(4) {
+        TileEntrance(7) {
             Row(Modifier.fillMaxWidth().height(GridHeight), horizontalArrangement = Arrangement.spacedBy(TileDefaults.Gutter)) {
                 CalloutTile(
                     headline = stringResource(R.string.callout_less_scrolling),
@@ -246,7 +267,7 @@ fun FocusScreen(viewModel: StandardAppViewModel, onOpenSettings: () -> Unit = {}
         }
 
         // Crosshair quote tile (opens Settings) and the barcode mantra.
-        TileEntrance(5) {
+        TileEntrance(8) {
             Row(Modifier.fillMaxWidth().height(FooterHeight), horizontalArrangement = Arrangement.spacedBy(TileDefaults.Gutter)) {
                 Tile(
                     modifier = Modifier.weight(RIGHT).fillMaxHeight().button("Open settings", onOpenSettings),
@@ -272,11 +293,6 @@ fun FocusScreen(viewModel: StandardAppViewModel, onOpenSettings: () -> Unit = {}
                 }
                 BarcodeFooter(Modifier.weight(LEFT).fillMaxHeight())
             }
-        }
-
-        // Quick note capture; notes persisted to focus_prefs.
-        TileEntrance(6) {
-            QuickNoteTile(context, Modifier.fillMaxWidth())
         }
     }
 }
@@ -417,26 +433,74 @@ private fun Modifier.button(label: String, action: () -> Unit): Modifier =
 private data class ProductivityApp(val packageName: String, val name: String, val tag: String)
 
 @Composable
-private fun StopwatchTile(modifier: Modifier = Modifier) {
+private fun StopwatchTile(modifier: Modifier = Modifier, prefs: SharedPreferences) {
     val colors = LocalAppTheme.current
-    var stopwatchMs by remember { mutableLongStateOf(0L) }
-    var isRunning by remember { mutableStateOf(false) }
+    var isRunning by remember { mutableStateOf(prefs.getBoolean(KEY_SW_RUNNING, false)) }
+    var startTime by remember { mutableLongStateOf(prefs.getLong(KEY_SW_START, 0L)) }
+    var accumulatedMs by remember { mutableLongStateOf(prefs.getLong(KEY_SW_ACCUMULATED, 0L)) }
+    var elapsedMs by remember {
+        mutableLongStateOf(
+            if (isRunning) (SystemClock.elapsedRealtime() - startTime).coerceAtLeast(0L) else accumulatedMs
+        )
+    }
     var laps by remember { mutableStateOf<List<Long>>(emptyList()) }
+
+    fun persistStopwatch() {
+        prefs.edit()
+            .putBoolean(KEY_SW_RUNNING, isRunning)
+            .putLong(KEY_SW_START, startTime)
+            .putLong(KEY_SW_ACCUMULATED, accumulatedMs)
+            .apply()
+    }
 
     LaunchedEffect(isRunning) {
         if (isRunning) {
             while (true) {
-                delay(1000L)
-                stopwatchMs += 1000L
+                val computed = SystemClock.elapsedRealtime() - startTime
+                if (computed < 0L) {
+                    isRunning = false
+                    accumulatedMs = 0L
+                    startTime = 0L
+                    elapsedMs = 0L
+                    persistStopwatch()
+                    break
+                }
+                elapsedMs = computed
+                delay(50L)
             }
         }
     }
 
-    val totalSeconds = stopwatchMs / 1000L
-    val display = "%02d:%02d".format(totalSeconds / 60L, totalSeconds % 60L)
-    val ringProgress = (stopwatchMs % 60000L).toFloat() / 60000f
-    val bandEven = (stopwatchMs / 60000L) % 2L == 0L
+    fun toggleRunning() {
+        if (isRunning) {
+            accumulatedMs = (SystemClock.elapsedRealtime() - startTime).coerceAtLeast(0L)
+            isRunning = false
+        } else {
+            startTime = SystemClock.elapsedRealtime() - accumulatedMs
+            isRunning = true
+        }
+        persistStopwatch()
+    }
+
+    fun resetStopwatch() {
+        isRunning = false
+        accumulatedMs = 0L
+        startTime = 0L
+        elapsedMs = 0L
+        laps = emptyList()
+        persistStopwatch()
+    }
+
+    val totalSeconds = elapsedMs / 1000L
+    val display = if (totalSeconds >= 3600L) {
+        "%02d:%02d:%02d".format(totalSeconds / 3600L, (totalSeconds % 3600L) / 60L, totalSeconds % 60L)
+    } else {
+        "%02d:%02d".format(totalSeconds / 60L, totalSeconds % 60L)
+    }
+    val ringProgress = (elapsedMs % 60000L).toFloat() / 60000f
+    val bandEven = (elapsedMs / 60000L) % 2L == 0L
     val ringColor = if (bandEven) colors.accent else colors.ink
+    val captionLabel = if (totalSeconds >= 3600L) "HH:MM:SS" else "MM:SS"
 
     Tile(modifier = modifier) {
         val c = LocalTileColors.current.content
@@ -474,7 +538,7 @@ private fun StopwatchTile(modifier: Modifier = Modifier) {
                 }
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     HeadlineText(display, 44.sp, color = c, maxLines = 1)
-                    MonoLabel("MM:SS", size = 9.sp, color = c.copy(alpha = 0.7f))
+                    MonoLabel(captionLabel, size = 9.sp, color = c.copy(alpha = 0.7f))
                 }
             }
             Row(
@@ -482,15 +546,11 @@ private fun StopwatchTile(modifier: Modifier = Modifier) {
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                BrutalButton(if (isRunning) "PAUSE" else "START", Modifier.weight(1f)) { isRunning = !isRunning }
+                BrutalButton(if (isRunning) "PAUSE" else "START", Modifier.weight(1f)) { toggleRunning() }
                 BrutalButton("LAP", Modifier.weight(1f)) {
-                    if (stopwatchMs > 0L) laps = laps + stopwatchMs
+                    if (elapsedMs > 0L) laps = laps + elapsedMs
                 }
-                BrutalButton("RESET", Modifier.weight(1f)) {
-                    isRunning = false
-                    stopwatchMs = 0L
-                    laps = emptyList()
-                }
+                BrutalButton("RESET", Modifier.weight(1f)) { resetStopwatch() }
             }
             Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 MonoLabel("LAPS", size = 9.sp, color = c.copy(alpha = 0.85f))
@@ -499,13 +559,117 @@ private fun StopwatchTile(modifier: Modifier = Modifier) {
                 } else {
                     laps.takeLast(3).reversed().forEachIndexed { i, lap ->
                         val ls = lap / 1000L
+                        val lapDisplay = if (ls >= 3600L) {
+                            "%02d:%02d:%02d".format(ls / 3600L, (ls % 3600L) / 60L, ls % 60L)
+                        } else {
+                            "%02d:%02d".format(ls / 60L, ls % 60L)
+                        }
                         MonoLabel(
-                            "LAP %02d  %02d:%02d".format(laps.size - i, ls / 60L, ls % 60L),
+                            "LAP %02d  %s".format(laps.size - i, lapDisplay),
                             size = 10.sp,
                             color = c
                         )
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun QuickTimerTile(modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val view = LocalView.current
+    var endTime by remember { mutableLongStateOf(0L) }
+    var remainingMs by remember { mutableLongStateOf(0L) }
+    var isTimerRunning by remember { mutableStateOf(false) }
+    var isComplete by remember { mutableStateOf(false) }
+    var timerLabel by remember { mutableStateOf("") }
+
+    fun startTimer(label: String, durationMs: Long) {
+        timerLabel = label
+        endTime = SystemClock.elapsedRealtime() + durationMs
+        remainingMs = durationMs
+        isComplete = false
+        isTimerRunning = true
+    }
+
+    LaunchedEffect(isTimerRunning) {
+        if (isTimerRunning) {
+            while (true) {
+                remainingMs = (endTime - SystemClock.elapsedRealtime()).coerceAtLeast(0L)
+                if (remainingMs <= 0L) {
+                    view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                    Toast.makeText(context, "TIMER COMPLETE", Toast.LENGTH_SHORT).show()
+                    isComplete = true
+                    isTimerRunning = false
+                    break
+                }
+                delay(100L)
+            }
+        }
+    }
+
+    val totalSeconds = remainingMs / 1000L
+    val display = if (totalSeconds >= 3600L) {
+        "%02d:%02d:%02d".format(totalSeconds / 3600L, (totalSeconds % 3600L) / 60L, totalSeconds % 60L)
+    } else {
+        "%02d:%02d".format(totalSeconds / 60L, totalSeconds % 60L)
+    }
+
+    Tile(modifier = modifier) {
+        val c = LocalTileColors.current.content
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            MonoLabel("QUICK TIMERS // COUNTDOWN", size = 10.sp, color = c.copy(alpha = 0.85f))
+            if (isTimerRunning || isComplete) {
+                HeadlineText(
+                    if (isComplete) "COMPLETE" else display,
+                    44.sp,
+                    color = c,
+                    maxLines = 1
+                )
+                MonoLabel(if (isComplete) "DONE" else timerLabel, size = 10.sp, color = c.copy(alpha = 0.85f))
+                if (isTimerRunning) {
+                    BrutalButton("CANCEL", Modifier.fillMaxWidth()) {
+                        isTimerRunning = false
+                        isComplete = false
+                        remainingMs = 0L
+                    }
+                } else {
+                    BrutalButton("DISMISS", Modifier.fillMaxWidth()) {
+                        isComplete = false
+                        remainingMs = 0L
+                    }
+                }
+            } else {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    BrutalButton("1 MIN", Modifier.weight(1f)) { startTimer("1 MIN", 60_000L) }
+                    BrutalButton("5 MIN", Modifier.weight(1f)) { startTimer("5 MIN", 300_000L) }
+                }
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    BrutalButton("POMODORO 25", Modifier.weight(1f)) { startTimer("POMODORO 25", 1_500_000L) }
+                    BrutalButton("BREAK 5", Modifier.weight(1f)) { startTimer("BREAK 5", 300_000L) }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun OpenClockButton(modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    BrutalButton("OPEN CLOCK APP", modifier) {
+        try {
+            context.startActivity(Intent(AlarmClock.ACTION_SHOW_TIMERS))
+        } catch (e: Exception) {
+            try {
+                context.startActivity(Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.parse("package:com.android.deskclock")))
+            } catch (e2: Exception) {
+                Toast.makeText(context, "NO CLOCK APP", Toast.LENGTH_SHORT).show()
             }
         }
     }

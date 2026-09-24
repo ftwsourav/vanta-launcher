@@ -20,6 +20,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -97,6 +98,7 @@ import com.xdlab.standard.ui.components.ParallaxBackground
 import com.xdlab.standard.ui.components.PeopleHubTile
 import com.xdlab.standard.ui.components.QuickSettingsFab
 import com.xdlab.standard.ui.components.SlideableHome
+import com.xdlab.standard.ui.components.SwipeDownSearch
 import com.xdlab.standard.ui.components.Tile
 import com.xdlab.standard.ui.components.TileDefaults
 import com.xdlab.standard.ui.components.TileEntrance
@@ -178,6 +180,7 @@ fun HomeScreen(
     val editMode by viewModel.editMode.collectAsState()
     val modules = settings.homeModules
     var contextMenuTile by remember { mutableStateOf<AppItem?>(null) }
+    var showSwipeSearch by remember { mutableStateOf(false) }
     val contentAlpha by animateFloatAsState(
         targetValue = if (editMode) 0.7f else 1f,
         animationSpec = tween(200),
@@ -196,7 +199,13 @@ fun HomeScreen(
     val fontScale = LocalDensity.current.fontScale.coerceIn(1f, 1.3f)
     val scrollState = rememberScrollState()
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    Box(modifier = Modifier
+        .fillMaxSize()
+        .pointerInput(Unit) {
+            detectVerticalDragGestures(onVerticalDrag = { change, amount ->
+                if (change.position.y < 50f && amount > 5f) showSwipeSearch = true
+            })
+        }) {
         ParallaxBackground(
             scrollState = scrollState,
             modifier = Modifier.fillMaxSize(),
@@ -343,6 +352,14 @@ fun HomeScreen(
             QuickSettingsFab(
                 modifier = Modifier.fillMaxSize(),
                 onToggleNight = { viewModel.setDarkMode(!settings.darkMode) }
+            )
+        }
+
+        if (showSwipeSearch) {
+            SwipeDownSearch(
+                apps = allApps,
+                onLaunch = { pkg -> viewModel.launchApp(context, pkg) },
+                onDismiss = { showSwipeSearch = false }
             )
         }
     }

@@ -1,18 +1,22 @@
 package com.xdlab.standard.ui.components
 
 import android.graphics.Bitmap
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.StartOffset
 import androidx.compose.animation.core.StartOffsetType
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -62,9 +66,37 @@ fun MusicWidget(
     onQueue: () -> Unit = {},
     onFavorite: () -> Unit = {},
     onShuffle: () -> Unit = {},
+    size: WidgetSize = WidgetSize.MEDIUM,
+    sizeCycle: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    Tile(modifier = modifier.fillMaxWidth().height(180.dp)) {
+    val theme = LocalAppTheme.current
+    val widgetHeightDp = when (size) {
+        WidgetSize.COMPACT -> 80
+        WidgetSize.MEDIUM -> 120
+        WidgetSize.EXPANDED -> 180
+    }
+    val pulseTransition = rememberInfiniteTransition(label = "musicPulse")
+    val pulseAlpha by pulseTransition.animateFloat(
+        initialValue = 0.15f,
+        targetValue = 0.7f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(700, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "musicPulseAlpha"
+    )
+    val sizedModifier = modifier
+        .fillMaxWidth()
+        .animateContentSize(spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow))
+        .height(widgetHeightDp.dp)
+    val tileModifier = if (isPlaying) {
+        sizedModifier.border(2.dp, theme.accent.copy(alpha = pulseAlpha))
+    } else {
+        sizedModifier
+    }
+
+    Tile(modifier = tileModifier) {
         val c = LocalTileColors.current.content
         Column(modifier = Modifier.fillMaxSize()) {
             Row(
@@ -72,24 +104,30 @@ fun MusicWidget(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(TileDefaults.Gutter)
             ) {
-                AlbumArt(bitmap = albumArt, modifier = Modifier.size(76.dp))
+                if (size != WidgetSize.COMPACT) {
+                    AlbumArt(bitmap = albumArt, modifier = Modifier.size(76.dp))
+                }
                 Column(
                     modifier = Modifier.weight(1f).fillMaxHeight(),
-                    verticalArrangement = Arrangement.SpaceBetween
+                    verticalArrangement = if (size == WidgetSize.COMPACT) Arrangement.Center else Arrangement.SpaceBetween
                 ) {
-                    Column {
+                    Column(
+                        modifier = Modifier.tilePress(onTap = {}, onLongPress = { sizeCycle() }, tilt = false)
+                    ) {
                         HeadlineText(
                             text = title?.uppercase() ?: "NO MUSIC PLAYING",
-                            size = 18.sp,
+                            size = if (size == WidgetSize.COMPACT) 16.sp else 18.sp,
                             color = c,
                             maxLines = 1
                         )
-                        MonoLabel(
-                            text = artist ?: "OPEN YOUR MUSIC APP",
-                            size = 11.sp,
-                            color = c.copy(alpha = 0.8f),
-                            maxLines = 1
-                        )
+                        if (size != WidgetSize.COMPACT) {
+                            MonoLabel(
+                                text = artist ?: "OPEN YOUR MUSIC APP",
+                                size = 11.sp,
+                                color = c.copy(alpha = 0.8f),
+                                maxLines = 1
+                            )
+                        }
                     }
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Row(
@@ -100,20 +138,26 @@ fun MusicWidget(
                             TransportGlyph(if (isPlaying) "\u23F8" else "\u25B6", onPlayPause, "Play or pause")
                             TransportGlyph("\u23ED", onNext, "Next track")
                         }
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(14.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            OptionGlyph("\u2630", onQueue, "Queue")
-                            OptionGlyph("\u2661", onFavorite, "Favorite")
-                            OptionGlyph("\u21C4", onShuffle, "Shuffle")
+                        if (size == WidgetSize.EXPANDED) {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                OptionGlyph("\u2630", onQueue, "Queue")
+                                OptionGlyph("\u2661", onFavorite, "Favorite")
+                                OptionGlyph("\u21C4", onShuffle, "Shuffle")
+                            }
                         }
                     }
                 }
             }
-            Spacer(Modifier.height(6.dp))
-            MusicProgressBar(isPlaying = isPlaying, modifier = Modifier.fillMaxWidth())
-            MusicVisualizer(isPlaying = isPlaying, modifier = Modifier.fillMaxWidth())
+            if (size != WidgetSize.COMPACT) {
+                Spacer(Modifier.height(6.dp))
+                MusicProgressBar(isPlaying = isPlaying, modifier = Modifier.fillMaxWidth())
+            }
+            if (size == WidgetSize.EXPANDED) {
+                MusicVisualizer(isPlaying = isPlaying, modifier = Modifier.fillMaxWidth())
+            }
         }
     }
 }

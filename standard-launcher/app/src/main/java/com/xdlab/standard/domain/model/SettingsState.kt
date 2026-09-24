@@ -19,7 +19,9 @@ data class SettingsState(
     val clockFormat: ClockFormat = ClockFormat.AUTO,
     val cinematicIntro: Boolean = true,
     val glanceEnabled: Boolean = true,
-    val weatherLocation: WeatherLocation = WeatherLocation("London", 51.5074, -0.1278)
+    val weatherLocation: WeatherLocation = WeatherLocation("London", 51.5074, -0.1278),
+    val accentApps: List<String> = emptyList(),
+    val accentMode: String = "manual"
 )
 
 object ThemeId {

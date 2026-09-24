@@ -1,13 +1,22 @@
 package com.xdlab.standard.ui.components
 
 import android.content.Intent
+import android.graphics.BitmapFactory
 import android.net.Uri
+import android.provider.ContactsContract
 import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -33,14 +42,19 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -50,11 +64,14 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import androidx.core.app.NotificationManagerCompat
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import com.xdlab.standard.domain.model.ContactItem
 import com.xdlab.standard.domain.model.MediaInfo
 import com.xdlab.standard.ui.theme.LocalAppTheme
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /** Button semantics for tiles and controls that use [tilePress] instead of `clickable`. */
 fun Modifier.button(label: String, action: (() -> Unit)? = null) = semantics(mergeDescendants = true) {
@@ -144,16 +161,18 @@ fun MediaModule(nowPlaying: MediaInfo?, onOpenApp: (String) -> Unit, modifier: M
     }
 }
 
-/** PEOPLE module: always rendered; asks for READ_CONTACTS on tap, contact tiles dial. */
+/** PEOPLE module: live rotating contact grid with photos and call/SMS actions. */
 @Composable
 fun PeopleHubTile(
     contacts: List<ContactItem>,
     permissionGranted: Boolean,
     onPermission: (Boolean) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    widgetSize: Int = 1
 ) {
     val context = LocalContext.current
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission(), onPermission)
+    var pending by remember { mutableStateOf<ContactItem?>(null) }
     when {
         !permissionGranted -> Tile(
             modifier = modifier.fillMaxWidth().heightIn(min = 56.dp).button("Enable contacts") { launcher.launch(android.Manifest.permission.READ_CONTACTS) },
@@ -164,24 +183,210 @@ fun PeopleHubTile(
         contacts.isEmpty() -> Tile(modifier = modifier.fillMaxWidth().heightIn(min = 56.dp)) {
             MonoLabel("NO CONTACTS //", size = 11.sp, color = LocalTileColors.current.content)
         }
-        else -> Row(
-            modifier = modifier.fillMaxWidth().height(96.dp),
-            horizontalArrangement = Arrangement.spacedBy(TileDefaults.Gutter)
-        ) {
-            contacts.take(4).forEach { contact ->
-                val number = contact.phoneNumber
-                Tile(
-                    modifier = Modifier.weight(1f).fillMaxHeight().button("Call ${contact.displayName}"),
-                    onClick = number?.let { n -> { context.open(Intent(Intent.ACTION_DIAL, Uri.parse("tel:$n"))) } }
-                ) {
-                    val c = LocalTileColors.current.content
-                    Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.SpaceBetween) {
-                        HeadlineText(contact.initials, 26.sp, color = c, maxLines = 1)
-                        MonoLabel(contact.displayName.substringBefore(' '), size = 9.sp, color = c.copy(alpha = 0.8f), maxLines = 1)
-                    }
-                }
+        else -> {
+            val groupSize = when (widgetSize) { 0 -> 2; 1 -> 4; else -> 6 }
+            val tileHeight = when (widgetSize) { 0 -> 96.dp; 1 -> 120.dp; else -> 144.dp }
+            val groups = contacts.chunked(groupSize)
+            val onContactTap: (ContactItem) -> Unit = { contact -> pending = contact }
+            val frames: List<@Composable () -> Unit> = groups.map { group ->
+                { PeopleFrame(group, groupSize, onContactTap) }
+            }
+            Column(modifier = modifier.fillMaxWidth().animateContentSize()) {
+                PeopleHeader(count = contacts.size, rotating = groups.size > 1)
+                LiveTile(
+                    modifier = Modifier.fillMaxWidth().height(tileHeight),
+                    frames = frames,
+                    intervalMs = 5000L,
+                    flipEnabled = groups.size > 1
+                )
             }
         }
+    }
+    pending?.let { contact ->
+        ContactActionDialog(
+            contact = contact,
+            onCall = {
+                contact.phoneNumber?.let { n -> context.open(Intent(Intent.ACTION_DIAL, Uri.parse("tel:$n"))) }
+                pending = null
+            },
+            onMessage = {
+                contact.phoneNumber?.let { n -> context.open(Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:$n"))) }
+                pending = null
+            },
+            onDismiss = { pending = null }
+        )
+    }
+}
+
+@Composable
+private fun PeopleHeader(count: Int, rotating: Boolean) {
+    val theme = LocalAppTheme.current
+    val pulse = rememberInfiniteTransition(label = "peoplePulse")
+    val pulseAlpha by pulse.animateFloat(
+        initialValue = 0.3f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(900), RepeatMode.Reverse),
+        label = "pulseAlpha"
+    )
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Box(Modifier.size(6.dp).background(theme.accent.copy(alpha = pulseAlpha)))
+            MonoLabel("PEOPLE", size = 11.sp, color = theme.ink)
+        }
+        MonoLabel(if (rotating) "$count //LIVE" else "$count", size = 11.sp, color = theme.ink.copy(alpha = 0.7f))
+    }
+}
+
+@Composable
+private fun PeopleFrame(
+    group: List<ContactItem>,
+    slots: Int,
+    onTap: (ContactItem) -> Unit
+) {
+    val outline = LocalTileColors.current.outline
+    val c = LocalTileColors.current.content
+    Row(
+        modifier = Modifier.fillMaxSize(),
+        horizontalArrangement = Arrangement.spacedBy(TileDefaults.Gutter)
+    ) {
+        val padded = group + List<ContactItem?>((slots - group.size).coerceAtLeast(0)) { null }
+        padded.forEach { contact ->
+            if (contact != null) {
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .border(TileDefaults.Border, outline)
+                        .tilePress(onTap = { onTap(contact) }, tilt = false)
+                        .button("Contact ${contact.displayName}") { onTap(contact) },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        modifier = Modifier.fillMaxSize().padding(6.dp),
+                        verticalArrangement = Arrangement.SpaceBetween,
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Box(
+                            modifier = Modifier.weight(1f).fillMaxWidth(),
+                            contentAlignment = Alignment.TopCenter
+                        ) {
+                            ContactAvatar(contact)
+                        }
+                        MonoLabel(
+                            contact.displayName.substringBefore(' '),
+                            size = 9.sp,
+                            color = c.copy(alpha = 0.85f),
+                            maxLines = 1
+                        )
+                    }
+                }
+            } else {
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .border(TileDefaults.Border, outline.copy(alpha = 0.4f))
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ContactAvatar(contact: ContactItem) {
+    val c = LocalTileColors.current.content
+    val photo = rememberContactPhoto(contact.id)
+    if (photo != null) {
+        Image(
+            painter = BitmapPainter(photo),
+            contentDescription = null,
+            modifier = Modifier.fillMaxSize(),
+            contentScale = ContentScale.Crop
+        )
+    } else {
+        HeadlineText(contact.initials, 26.sp, color = c, maxLines = 1)
+    }
+}
+
+@Composable
+private fun rememberContactPhoto(contactId: String): ImageBitmap? {
+    val context = LocalContext.current
+    return produceState<ImageBitmap?>(initialValue = null, contactId, context) {
+        value = withContext(Dispatchers.IO) {
+            ContactPhotoCache.getOrLoad(contactId) { loadContactPhoto(context, contactId) }
+        }
+    }.value
+}
+
+private object ContactPhotoCache {
+    private val cache = android.util.LruCache<String, ImageBitmap>(32)
+    fun getOrLoad(key: String, loader: () -> ImageBitmap?): ImageBitmap? {
+        cache.get(key)?.let { return it }
+        val loaded = loader() ?: return null
+        cache.put(key, loaded)
+        return loaded
+    }
+}
+
+private fun loadContactPhoto(context: android.content.Context, contactId: String): ImageBitmap? {
+    return try {
+        val contactUri = Uri.withAppendedPath(ContactsContract.Contacts.CONTENT_URI, contactId)
+        val photoUri = Uri.withAppendedPath(contactUri, ContactsContract.Contacts.Photo.CONTENT_DIRECTORY)
+        context.contentResolver.openInputStream(photoUri)?.use { stream ->
+            BitmapFactory.decodeStream(stream)?.asImageBitmap()
+        }
+    } catch (e: Exception) {
+        null
+    }
+}
+
+@Composable
+private fun ContactActionDialog(
+    contact: ContactItem,
+    onCall: () -> Unit,
+    onMessage: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val theme = LocalAppTheme.current
+    Dialog(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(theme.tile)
+                .border(TileDefaults.Border, theme.ink)
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            MonoLabel("CONTACT //", size = 11.sp, color = theme.ink.copy(alpha = 0.7f))
+            HeadlineText(contact.displayName.uppercase(), 24.sp, color = theme.ink, maxLines = 1)
+            contact.phoneNumber?.let { number ->
+                MonoLabel(number, size = 11.sp, color = theme.ink.copy(alpha = 0.85f), maxLines = 1)
+            }
+            Spacer(Modifier.height(4.dp))
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ContactActionChip("CALL", Modifier.weight(1f), onCall)
+                ContactActionChip("MESSAGE", Modifier.weight(1f), onMessage)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ContactActionChip(label: String, modifier: Modifier = Modifier, onTap: () -> Unit) {
+    val theme = LocalAppTheme.current
+    Box(
+        modifier = modifier
+            .heightIn(min = 44.dp)
+            .border(TileDefaults.Border, theme.ink)
+            .tilePress(onTap = onTap, tilt = false)
+            .button(label, onTap),
+        contentAlignment = Alignment.Center
+    ) {
+        MonoLabel(label, size = 13.sp, color = theme.ink, weight = FontWeight.Bold)
     }
 }
 

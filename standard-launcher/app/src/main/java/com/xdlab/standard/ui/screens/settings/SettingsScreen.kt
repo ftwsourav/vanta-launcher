@@ -230,8 +230,39 @@ fun SettingsScreen(viewModel: StandardAppViewModel, onClose: () -> Unit) {
                     if (app != null) viewModel.setPinned(pinned.map { it.packageName } + app.packageName)
                 }
             }
-            ValueRow("ACCENT TILE", pinned.firstOrNull { it.isAccent }?.label?.uppercase() ?: "NONE") {
-                picker = PickerRequest("ACCENT TILE", pinned, allowNone = true) { app -> viewModel.setAccent(app?.packageName) }
+            SectionHeader("ACCENT APPS")
+            val accentApps by viewModel.accentApps.collectAsState()
+            val accentMode by viewModel.accentMode.collectAsState()
+            LaunchedEffect(Unit) {
+                val rawApps = prefs.getString("accent_apps", null)
+                if (rawApps != null) {
+                    viewModel.setAccentApps(rawApps.split(",").map { it.trim() }.filter { it.isNotEmpty() })
+                }
+                val rawMode = prefs.getString("accent_mode", null)
+                if (rawMode != null) {
+                    viewModel.setAccentMode(rawMode)
+                }
+            }
+            if (pinned.isEmpty()) {
+                MonoLabel("NO PINNED APPS", size = 11.sp, color = colors.muted, modifier = Modifier.padding(vertical = 8.dp))
+            }
+            pinned.forEach { app ->
+                AccentAppCheckRow(
+                    label = app.label,
+                    checked = app.packageName in accentApps,
+                    enabled = app.packageName in accentApps || accentApps.size < 5,
+                    onToggle = {
+                        tick()
+                        val next = if (app.packageName in accentApps) accentApps - app.packageName else accentApps + app.packageName
+                        viewModel.setAccentApps(next)
+                        prefs.edit().putString("accent_apps", next.joinToString(",")).apply()
+                    }
+                )
+            }
+            AccentModeButtons(selected = accentMode) { mode ->
+                tick()
+                viewModel.setAccentMode(mode)
+                prefs.edit().putString("accent_mode", mode).apply()
             }
             ToggleRow("NOTIFICATION PREVIEWS", notifPreviews) {
                 tick()
@@ -601,6 +632,51 @@ private fun ListEditRow(
             Spacer(Modifier.width(6.dp))
         }
         SquareButton("✕", "Remove", onClick = onRemove)
+    }
+}
+
+@Composable
+private fun AccentAppCheckRow(label: String, checked: Boolean, enabled: Boolean, onToggle: () -> Unit) {
+    val colors = LocalAppTheme.current
+    val mod = if (enabled) Modifier.plainClickable(onToggle) else Modifier
+    RowShell(modifier = mod) {
+        MonoLabel(label, size = 12.sp, weight = FontWeight.Bold, color = if (enabled) colors.ink else colors.muted, modifier = Modifier.weight(1f), maxLines = 1)
+        Spacer(Modifier.width(10.dp))
+        Box(
+            modifier = Modifier
+                .size(20.dp)
+                .border(2.dp, if (enabled) colors.ink else colors.ink.copy(alpha = 0.35f))
+                .background(if (checked) colors.accent else Color.Transparent),
+            contentAlignment = Alignment.Center
+        ) {
+            if (checked) MonoLabel("✕", size = 12.sp, weight = FontWeight.Bold, color = colors.onAccent)
+        }
+    }
+}
+
+@Composable
+private fun AccentModeButtons(selected: String, onSelect: (String) -> Unit) {
+    val colors = LocalAppTheme.current
+    val modes = listOf("MANUAL" to "manual", "RANDOM" to "random", "ROTATE" to "rotate")
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        modes.forEach { (label, value) ->
+            val isSelected = value == selected
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .heightIn(min = 40.dp)
+                    .border(2.dp, if (isSelected) colors.accent else colors.ink)
+                    .background(if (isSelected) colors.accent else Color.Transparent)
+                    .plainClickable { onSelect(value) }
+                    .semantics { contentDescription = label },
+                contentAlignment = Alignment.Center
+            ) {
+                MonoLabel(label, size = 11.sp, weight = FontWeight.Bold, color = if (isSelected) colors.onAccent else colors.ink)
+            }
+        }
     }
 }
 

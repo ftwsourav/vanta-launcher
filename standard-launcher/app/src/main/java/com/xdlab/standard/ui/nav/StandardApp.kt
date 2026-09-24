@@ -97,7 +97,7 @@ fun StandardApp(viewModel: StandardAppViewModel) {
         viewModel.refreshWeather()
     }
 
-    val pagerState = rememberPagerState(pageCount = { 3 })
+    val pagerState = rememberPagerState(pageCount = { 4 })
     val scope = rememberCoroutineScope()
     var currentPage by rememberSaveable { mutableStateOf(0) }
 
@@ -131,7 +131,7 @@ fun StandardApp(viewModel: StandardAppViewModel) {
     BackHandler(enabled = showGlance) { showGlance = false }
     BackHandler(enabled = viewModel.editMode.value) { viewModel.setEditMode(false) }
 
-    val pageNames = listOf("home", "apps", "focus")
+    val pageNames = listOf("home", "apps", "focus", "live")
     val activePage = if (settings.animationStyle == AnimationStyle.SMOOTH) currentPage else pagerState.currentPage
 
     var homeVisible by remember { mutableStateOf(true) }
@@ -229,6 +229,7 @@ fun StandardApp(viewModel: StandardAppViewModel) {
                                 onOpenSettings = { showSettings = true },
                                 onOpenDrawer = openDrawer
                             )
+                            3 -> com.xdlab.standard.ui.screens.live.LiveScreen()
                             else -> {}
                         }
                     }
@@ -304,6 +305,7 @@ fun StandardApp(viewModel: StandardAppViewModel) {
                                     onOpenSettings = { showSettings = true },
                                     onOpenDrawer = openDrawer
                                 )
+                                3 -> com.xdlab.standard.ui.screens.live.LiveScreen()
                                 else -> {}
                             }
                         }
@@ -312,7 +314,7 @@ fun StandardApp(viewModel: StandardAppViewModel) {
             }
 
             PivotDots(
-                totalPages = 3,
+                totalPages = 4,
                 currentPage = activePage,
                 accent = colors.accent
             )

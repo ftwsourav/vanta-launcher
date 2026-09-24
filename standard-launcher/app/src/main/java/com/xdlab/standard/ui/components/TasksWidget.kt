@@ -1,5 +1,14 @@
 package com.xdlab.standard.ui.components
 
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -16,6 +25,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -88,18 +98,38 @@ class TaskStore(context: android.content.Context) {
     }
 }
 
+enum class WidgetSize(val heightDp: Int, val maxItems: Int) {
+    COMPACT(100, 3),
+    MEDIUM(160, 5),
+    EXPANDED(240, 8)
+}
+
 @Composable
 fun TasksWidget(
     tasks: List<TaskItem>,
     onToggle: (Int) -> Unit,
     onAdd: (String) -> Unit,
     onRemove: (Int) -> Unit,
+    size: WidgetSize = WidgetSize.MEDIUM,
+    sizeCycle: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val theme = LocalAppTheme.current
     val keyboard = LocalSoftwareKeyboardController.current
     var input by remember { mutableStateOf("") }
     val completed = tasks.count { it.completed }
+    val hasIncomplete = tasks.any { !it.completed }
+    val visibleTasks = tasks.take(size.maxItems)
+    val pulseTransition = rememberInfiniteTransition(label = "tasksPulse")
+    val pulseAlpha by pulseTransition.animateFloat(
+        initialValue = 0.3f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(800, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "tasksPulseAlpha"
+    )
 
     val submit: () -> Unit = {
         if (input.isNotBlank()) {
@@ -109,15 +139,37 @@ fun TasksWidget(
         }
     }
 
-    Tile(modifier = modifier.fillMaxWidth().height(160.dp), style = TileStyle.Outline, contentPadding = 0.dp) {
+    Tile(
+        modifier = modifier
+            .fillMaxWidth()
+            .animateContentSize(spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow))
+            .height(size.heightDp.dp),
+        style = TileStyle.Outline,
+        contentPadding = 0.dp
+    ) {
         val c = LocalTileColors.current.content
         Column(modifier = Modifier.fillMaxSize()) {
             Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .tilePress(onTap = {}, onLongPress = { sizeCycle() }, tilt = false)
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                MonoLabel("TASKS", size = 11.sp, color = c)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    if (hasIncomplete) {
+                        Box(
+                            Modifier
+                                .size(6.dp)
+                                .background(theme.accent.copy(alpha = pulseAlpha), CircleShape)
+                        )
+                    }
+                    MonoLabel("TASKS", size = 11.sp, color = c)
+                }
                 MonoLabel("$completed/${tasks.size}", size = 11.sp, color = c.copy(alpha = 0.7f))
             }
             Box(Modifier.fillMaxWidth().height(1.dp).background(c.copy(alpha = 0.25f)))
@@ -127,7 +179,7 @@ fun TasksWidget(
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                items(tasks, key = { it.id }) { task ->
+                items(visibleTasks, key = { it.id }) { task ->
                     TaskRow(task = task, onToggle = onToggle, onRemove = onRemove)
                 }
             }
