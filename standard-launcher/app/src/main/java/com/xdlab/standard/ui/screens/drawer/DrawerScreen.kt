@@ -1,5 +1,9 @@
 package com.xdlab.standard.ui.screens.drawer
 
+import android.content.Context
+import android.widget.Toast
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -120,17 +124,26 @@ private sealed interface Entry {
     }
 }
 
+private data class AppRowMenuAction(val label: String, val onClick: () -> Unit)
+
 private fun letterOf(app: AppItem): String =
     app.label.firstOrNull()?.takeIf { it.isLetter() }?.uppercase() ?: "#"
 
-private fun buildEntries(apps: List<AppItem>, query: String): List<Entry> {
+private fun buildEntries(apps: List<AppItem>, query: String, sortMode: String): List<Entry> {
     val q = query.trim()
     val filtered = if (q.isEmpty()) apps else apps.filter { it.label.contains(q, ignoreCase = true) }
     var n = 0
-    return buildList {
-        filtered.groupBy(::letterOf).toSortedMap().forEach { (letter, group) ->
-            add(Entry.Letter(letter))
-            group.forEach { add(Entry.App(it, ++n)) }
+    return if (sortMode == "mostUsed") {
+        buildList {
+            filtered.sortedWith(compareByDescending<AppItem> { it.pinned }.thenBy { it.label.lowercase() })
+                .forEach { add(Entry.App(it, ++n)) }
+        }
+    } else {
+        buildList {
+            filtered.groupBy(::letterOf).toSortedMap().forEach { (letter, group) ->
+                add(Entry.Letter(letter))
+                group.forEach { add(Entry.App(it, ++n)) }
+            }
         }
     }
 }
@@ -145,8 +158,10 @@ fun DrawerScreen(viewModel: StandardAppViewModel, onOpenSettings: () -> Unit) {
     val scope = rememberCoroutineScope()
     val settings by viewModel.settings.collectAsState()
     val allApps by viewModel.allApps.collectAsState()
+    val pinned by viewModel.pinnedApps.collectAsState()
 
     var searchQuery by rememberSaveable { mutableStateOf("") }
+    var sortMode by rememberSaveable { mutableStateOf("alpha") }
     val listState = rememberLazyListState()
     var zoomTarget by remember { mutableFloatStateOf(0f) }
     val zoomProgress by animateFloatAsState(
@@ -172,10 +187,22 @@ fun DrawerScreen(viewModel: StandardAppViewModel, onOpenSettings: () -> Unit) {
     }
     val quote = if (quotes.isEmpty()) FallbackQuote else quotes[quoteIndex % quotes.size]
 
+    val recentsPrefs = context.getSharedPreferences("standard_recents", Context.MODE_PRIVATE)
+    val hiddenPrefs = context.getSharedPreferences("standard_hidden", Context.MODE_PRIVATE)
+    val recentsRaw = remember { recentsPrefs.getString("recents", "") ?: "" }
+    var hiddenRaw by remember { mutableStateOf(hiddenPrefs.getString("hidden", "") ?: "") }
+    val hiddenApps = remember(hiddenRaw) { hiddenRaw.split(",").filter { it.isNotBlank() }.toSet() }
+
     val showHeader = searchQuery.isBlank()
-    val entries = remember(searchQuery, allApps) { buildEntries(allApps, searchQuery) }
-    // Lazy items before the first entry: top section (when not searching), search field, section label.
-    val prefix = (if (showHeader) 1 else 0) + 2
+    val visibleApps = remember(allApps, hiddenApps) { allApps.filter { it.packageName !in hiddenApps } }
+    val byPkg = remember(visibleApps) { visibleApps.associateBy { it.packageName } }
+    val recents: List<AppItem> = remember(recentsRaw, byPkg, pinned, hiddenApps) {
+        if (recentsRaw.isNotBlank()) recentsRaw.split(",").mapNotNull { byPkg[it.trim()] }.take(4)
+        else pinned.filter { it.packageName !in hiddenApps }.take(4)
+    }
+    val recentsVisible = showHeader && recents.isNotEmpty()
+    val entries = remember(searchQuery, visibleApps, sortMode) { buildEntries(visibleApps, searchQuery, sortMode) }
+    val prefix = (if (showHeader) 1 else 0) + (if (recentsVisible) 1 else 0) + 1
     val letterIndex = remember(entries, prefix) {
         buildMap { entries.forEachIndexed { i, e -> if (e is Entry.Letter) put(e.letter, prefix + i) } }
     }
@@ -194,6 +221,14 @@ fun DrawerScreen(viewModel: StandardAppViewModel, onOpenSettings: () -> Unit) {
         viewModel.togglePin(app)
         if (hapticsOn) haptics.performHapticFeedback(HapticFeedbackType.LongPress)
         pinNotice = (if (app.pinned) "UNPINNED " else "PINNED ") + app.label.uppercase()
+    }
+    val hideApp: (AppItem) -> Unit = { app ->
+        val list = hiddenRaw.split(",").filter { it.isNotBlank() }.toMutableList()
+        if (app.packageName !in list) list.add(app.packageName)
+        hiddenPrefs.edit().putString("hidden", list.joinToString(",")).apply()
+        hiddenRaw = list.joinToString(",")
+        if (hapticsOn) haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+        pinNotice = "HIDDEN " + app.label.uppercase()
     }
 
     Box(
@@ -226,89 +261,125 @@ fun DrawerScreen(viewModel: StandardAppViewModel, onOpenSettings: () -> Unit) {
                 }
             }
     ) {
-        LazyColumn(
-            state = listState,
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = WindowInsets.safeDrawing.asPaddingValues(),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            if (showHeader) {
-                item(key = "top", contentType = "top") {
-                    TopSection(
-                        viewModel = viewModel,
-                        quote = quote,
-                        onLaunch = launch,
-                        onTogglePin = togglePin,
-                        onOpenSettings = onOpenSettings,
-                        modifier = Modifier.padding(horizontal = PagePadding, vertical = 8.dp)
+        Column(modifier = Modifier.fillMaxSize()) {
+            SearchField(
+                query = searchQuery,
+                onQueryChange = { searchQuery = it },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top))
+                    .padding(horizontal = PagePadding, vertical = 4.dp)
+            )
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxWidth().weight(1f),
+                contentPadding = WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom).asPaddingValues(),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                if (showHeader) {
+                    item(key = "top", contentType = "top") {
+                        TopSection(
+                            viewModel = viewModel,
+                            quote = quote,
+                            onLaunch = launch,
+                            onTogglePin = togglePin,
+                            onOpenSettings = onOpenSettings,
+                            modifier = Modifier.padding(horizontal = PagePadding, vertical = 8.dp)
+                        )
+                    }
+                }
+                if (recentsVisible) {
+                    item(key = "recents", contentType = "recents") {
+                        RecentlyUsedRow(
+                            apps = recents,
+                            onLaunch = launch,
+                            onTogglePin = togglePin,
+                            modifier = Modifier.padding(horizontal = PagePadding, vertical = 6.dp)
+                        )
+                    }
+                }
+                item(key = "all", contentType = "label") {
+                    SectionLabel(
+                        when {
+                            !showHeader -> "RESULTS"
+                            sortMode == "mostUsed" -> "MOST USED"
+                            else -> "ALL APPS"
+                        },
+                        modifier = Modifier.padding(horizontal = PagePadding, vertical = 6.dp)
                     )
                 }
-            }
-            item(key = "search", contentType = "search") {
-                SearchField(
-                    query = searchQuery,
-                    onQueryChange = { searchQuery = it },
-                    modifier = Modifier.padding(horizontal = PagePadding, vertical = 4.dp)
-                )
-            }
-            item(key = "all", contentType = "label") {
-                SectionLabel(
-                    if (showHeader) "ALL APPS" else "RESULTS",
-                    modifier = Modifier.padding(horizontal = PagePadding, vertical = 6.dp)
-                )
-            }
-            if (entries.isEmpty()) {
-                item(key = "empty", contentType = "label") {
-                    HeadlineText(
-                        if (showHeader) "NO APPS" else "NO RESULTS",
-                        28.sp,
-                        color = colors.muted,
-                        modifier = Modifier.padding(PagePadding)
-                    )
-                }
-            }
-            entries.forEach { entry ->
-                when (entry) {
-                    is Entry.Letter -> item(key = entry.key, contentType = Entry.Letter::class) {
+                if (entries.isEmpty()) {
+                    item(key = "empty", contentType = "label") {
                         HeadlineText(
-                            entry.letter,
+                            if (showHeader) "NO APPS" else "NO RESULTS",
                             28.sp,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(colors.background.copy(alpha = 0.92f))
-                                .padding(start = PagePadding, top = 12.dp, bottom = 2.dp)
-                        )
-                    }
-                    is Entry.App -> item(key = entry.key, contentType = Entry.App::class) {
-                        NumberedAppRowWithIcon(
-                            index = entry.number,
-                            app = entry.app,
-                            onLaunch = { launch(entry.app) },
-                            onLongPress = { togglePin(entry.app) },
-                            pinned = entry.app.pinned,
-                            modifier = Modifier
-                                .padding(horizontal = PagePadding)
-                                .appRowSemantics(entry.app, launch, togglePin)
+                            color = colors.muted,
+                            modifier = Modifier.padding(PagePadding)
                         )
                     }
                 }
-            }
-            item(key = "settings", contentType = "settings") {
-                SettingsRow(onOpenSettings, Modifier.padding(horizontal = PagePadding).padding(top = 18.dp))
-            }
-            item(key = "footer", contentType = "footer") {
-                Footer(Modifier.padding(horizontal = PagePadding).padding(bottom = 16.dp))
+                entries.forEach { entry ->
+                    when (entry) {
+                        is Entry.Letter -> item(key = entry.key, contentType = Entry.Letter::class) {
+                            HeadlineText(
+                                entry.letter,
+                                28.sp,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(colors.background.copy(alpha = 0.92f))
+                                    .padding(start = PagePadding, top = 12.dp, bottom = 2.dp)
+                            )
+                        }
+                        is Entry.App -> item(key = entry.key, contentType = Entry.App::class) {
+                            NumberedAppRowWithIcon(
+                                index = entry.number,
+                                app = entry.app,
+                                onLaunch = { launch(entry.app) },
+                                onLongPress = { togglePin(entry.app) },
+                                pinned = entry.app.pinned,
+                                menuActions = listOf(
+                                    AppRowMenuAction(if (entry.app.pinned) "UNPIN FROM HOME" else "PIN TO HOME") { togglePin(entry.app) },
+                                    AppRowMenuAction("HIDE APP") { hideApp(entry.app) }
+                                ),
+                                modifier = Modifier
+                                    .padding(horizontal = PagePadding)
+                                    .appRowSemantics(entry.app, launch, togglePin)
+                            )
+                        }
+                    }
+                }
+                item(key = "settings", contentType = "settings") {
+                    SettingsRow(onOpenSettings, Modifier.padding(horizontal = PagePadding).padding(top = 18.dp))
+                }
+                item(key = "footer", contentType = "footer") {
+                    Footer(Modifier.padding(horizontal = PagePadding).padding(bottom = 16.dp))
+                }
+                item(key = "appBarSpacer", contentType = "spacer") {
+                    Spacer(Modifier.height(72.dp))
+                }
             }
         }
 
         WpAppBar(
             actions = listOf(
-                AppBarAction("Sort", "⇅", { }),
-                AppBarAction("Refresh", "⟳", { }),
+                AppBarAction("Sort", "⇅", {
+                    sortMode = if (sortMode == "alpha") "mostUsed" else "alpha"
+                    Toast.makeText(context, "SORTED", Toast.LENGTH_SHORT).show()
+                }),
+                AppBarAction("Refresh", "⟳", {
+                    viewModel.refreshWeather()
+                    Toast.makeText(context, "REFRESHED", Toast.LENGTH_SHORT).show()
+                }),
                 AppBarAction("Settings", "⚙", { onOpenSettings() })
             ),
             menuItems = listOf("PIN TO HOME", "RESET LAYOUT", "APP INFO"),
-            onMenuItemClick = { },
+            onMenuItemClick = { item ->
+                when (item) {
+                    "PIN TO HOME" -> Toast.makeText(context, "PIN TO HOME", Toast.LENGTH_SHORT).show()
+                    "RESET LAYOUT" -> Toast.makeText(context, "RESET LAYOUT", Toast.LENGTH_SHORT).show()
+                    "APP INFO" -> Toast.makeText(context, "APP INFO", Toast.LENGTH_SHORT).show()
+                }
+            },
             modifier = Modifier
                 .fillMaxWidth()
                 .align(Alignment.BottomCenter)
@@ -370,36 +441,92 @@ private fun NumberedAppRowWithIcon(
     onLongPress: (() -> Unit)? = null,
     pinned: Boolean = false,
     labelSize: TextUnit = 24.sp,
-    minHeight: Dp = 56.dp
+    minHeight: Dp = 56.dp,
+    menuActions: List<AppRowMenuAction> = emptyList()
 ) {
     val colors = LocalAppTheme.current
+    var menuExpanded by remember { mutableStateOf(false) }
     Tile(
         modifier = modifier.fillMaxWidth(),
         style = TileStyle.Outline,
         contentPadding = 0.dp,
         onClick = onLaunch,
-        onLongClick = onLongPress
+        onLongClick = {
+            if (menuActions.isNotEmpty()) menuExpanded = true else onLongPress?.invoke()
+        }
     ) {
         val c = LocalTileColors.current.content
-        Row(
-            modifier = Modifier.fillMaxWidth().heightIn(min = minHeight).height(IntrinsicSize.Min),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            MonoLabel("%02d".format(index), size = 11.sp, color = c, modifier = Modifier.padding(horizontal = 12.dp))
-            AppIcon(packageName = app.packageName, size = 32.dp)
-            Spacer(Modifier.width(12.dp))
-            HeadlineText(
-                app.label.uppercase(),
-                labelSize,
-                color = c,
-                maxLines = 1,
-                modifier = Modifier.weight(1f).padding(horizontal = 12.dp, vertical = 12.dp)
-            )
-            if (pinned) {
-                Box(Modifier.size(8.dp).background(colors.accent))
-                Spacer(Modifier.width(10.dp))
+        Box(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier.fillMaxWidth().heightIn(min = minHeight).height(IntrinsicSize.Min),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                MonoLabel("%02d".format(index), size = 11.sp, color = c, modifier = Modifier.padding(horizontal = 12.dp))
+                AppIcon(packageName = app.packageName, size = 32.dp)
+                Spacer(Modifier.width(12.dp))
+                HeadlineText(
+                    app.label.uppercase(),
+                    labelSize,
+                    color = c,
+                    maxLines = 1,
+                    modifier = Modifier.weight(1f).padding(horizontal = 12.dp, vertical = 12.dp)
+                )
+                if (pinned) {
+                    Box(Modifier.size(8.dp).background(colors.accent))
+                    Spacer(Modifier.width(10.dp))
+                }
+                MonoLabel("→", size = 18.sp, color = c, weight = FontWeight.Bold, modifier = Modifier.padding(end = 14.dp))
             }
-            MonoLabel("→", size = 18.sp, color = c, weight = FontWeight.Bold, modifier = Modifier.padding(end = 14.dp))
+            DropdownMenu(
+                expanded = menuExpanded,
+                onDismissRequest = { menuExpanded = false }
+            ) {
+                menuActions.forEach { action ->
+                    DropdownMenuItem(
+                        text = { MonoLabel(action.label, size = 12.sp, color = colors.ink) },
+                        onClick = {
+                            menuExpanded = false
+                            action.onClick()
+                        }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RecentlyUsedRow(
+    apps: List<AppItem>,
+    onLaunch: (AppItem) -> Unit,
+    onTogglePin: (AppItem) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val c = LocalTileColors.current.content
+    Column(modifier = modifier.fillMaxWidth()) {
+        SectionLabel("RECENTLY USED", modifier = Modifier.padding(bottom = 6.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(Gutter)
+        ) {
+            apps.forEach { app ->
+                Tile(
+                    modifier = Modifier.weight(1f),
+                    style = TileStyle.Outline,
+                    contentPadding = 8.dp,
+                    onClick = { onLaunch(app) },
+                    onLongClick = { onTogglePin(app) }
+                ) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        AppIcon(packageName = app.packageName, size = 32.dp)
+                        HeadlineText(app.label.uppercase(), 11.sp, color = c, maxLines = 1)
+                    }
+                }
+            }
         }
     }
 }

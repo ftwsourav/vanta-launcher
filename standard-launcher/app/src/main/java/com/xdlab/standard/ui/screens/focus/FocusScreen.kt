@@ -3,6 +3,7 @@ package com.xdlab.standard.ui.screens.focus
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
+import android.media.RingtoneManager
 import android.os.SystemClock
 import android.provider.AlarmClock
 import android.view.HapticFeedbackConstants
@@ -153,6 +154,8 @@ fun FocusScreen(viewModel: StandardAppViewModel, onOpenSettings: () -> Unit = {}
     val quotes = settings.quotes
     val quote = quotes.takeIf { it.isNotEmpty() }?.let { it[LocalDate.now().dayOfYear % it.size] }
 
+    var soundOn by remember { mutableStateOf(true) }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -192,11 +195,11 @@ fun FocusScreen(viewModel: StandardAppViewModel, onOpenSettings: () -> Unit = {}
 
         // Stopwatch counts up; ring fills each minute, laps below.
         TileEntrance(2) {
-            StopwatchTile(Modifier.fillMaxWidth(), prefs)
+            StopwatchTile(Modifier.fillMaxWidth(), prefs, soundOn) { soundOn = !soundOn }
         }
 
         TileEntrance(3) {
-            QuickTimerTile(Modifier.fillMaxWidth())
+            QuickTimerTile(Modifier.fillMaxWidth(), soundOn)
         }
 
         TileEntrance(4) {
@@ -433,7 +436,12 @@ private fun Modifier.button(label: String, action: () -> Unit): Modifier =
 private data class ProductivityApp(val packageName: String, val name: String, val tag: String)
 
 @Composable
-private fun StopwatchTile(modifier: Modifier = Modifier, prefs: SharedPreferences) {
+private fun StopwatchTile(
+    modifier: Modifier = Modifier,
+    prefs: SharedPreferences,
+    soundOn: Boolean,
+    onToggleSound: () -> Unit
+) {
     val colors = LocalAppTheme.current
     var isRunning by remember { mutableStateOf(prefs.getBoolean(KEY_SW_RUNNING, false)) }
     var startTime by remember { mutableLongStateOf(prefs.getLong(KEY_SW_START, 0L)) }
@@ -509,7 +517,14 @@ private fun StopwatchTile(modifier: Modifier = Modifier, prefs: SharedPreference
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            MonoLabel("STOPWATCH // COUNTS UP", size = 10.sp, color = c.copy(alpha = 0.85f))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                MonoLabel("STOPWATCH // COUNTS UP", size = 10.sp, color = c.copy(alpha = 0.85f))
+                BrutalButton(if (soundOn) "SOUND ON" else "SOUND OFF", Modifier, fillWidth = false) { onToggleSound() }
+            }
             Box(modifier = Modifier.size(200.dp), contentAlignment = Alignment.Center) {
                 Canvas(Modifier.fillMaxSize()) {
                     val sw = 8.dp.toPx()
@@ -577,7 +592,7 @@ private fun StopwatchTile(modifier: Modifier = Modifier, prefs: SharedPreference
 }
 
 @Composable
-private fun QuickTimerTile(modifier: Modifier = Modifier) {
+private fun QuickTimerTile(modifier: Modifier = Modifier, soundOn: Boolean) {
     val context = LocalContext.current
     val view = LocalView.current
     var endTime by remember { mutableLongStateOf(0L) }
@@ -600,6 +615,10 @@ private fun QuickTimerTile(modifier: Modifier = Modifier) {
                 remainingMs = (endTime - SystemClock.elapsedRealtime()).coerceAtLeast(0L)
                 if (remainingMs <= 0L) {
                     view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                    if (soundOn) {
+                        val uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+                        RingtoneManager.getRingtone(context, uri)?.play()
+                    }
                     Toast.makeText(context, "TIMER COMPLETE", Toast.LENGTH_SHORT).show()
                     isComplete = true
                     isTimerRunning = false

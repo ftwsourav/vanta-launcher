@@ -237,6 +237,7 @@ fun AppTile(
     val colors = LocalAppTheme.current
     val captionText = caption ?: TileCaptions.defaultFor(app.packageName, app.label)
     val flip = remember { Animatable(0f) }
+    val turnstileRotation = remember { Animatable(0f) }
     val scope = rememberCoroutineScope()
 
     val front: @Composable () -> Unit = {
@@ -265,13 +266,18 @@ fun AppTile(
                 delay(120)
                 flip.snapTo(0f)
             }
-            else -> onTap()
+            else -> scope.launch {
+                turnstileRotation.animateTo(90f, spring(dampingRatio = 0.7f, stiffness = 800f))
+                onTap()
+                delay(100)
+                turnstileRotation.snapTo(0f)
+            }
         }
     }
 
     val liveActive = liveEnabled && !editMode
     val staggerDelay = remember(app.packageName) {
-        app.packageName.hashCode().absoluteValue.toLong() % 5000L
+        app.packageName.hashCode().absoluteValue.toLong() % 3000L
     }
     val liveStarted by produceState(initialValue = false, app.packageName, liveActive) {
         if (liveActive) {
@@ -289,6 +295,10 @@ fun AppTile(
             .graphicsLayer {
                 rotationY = flip.value
                 cameraDistance = 16f * density
+            }
+            .graphicsLayer {
+                rotationY = turnstileRotation.value
+                scaleX = 1f + turnstileRotation.value / 180f * 0.2f
             }
             .resizeCorner(editMode, colors.accent)
     ) {
@@ -315,7 +325,7 @@ fun AppTile(
                         }
                     }
                 ),
-                intervalMs = 10000L,
+                intervalMs = 7000L,
                 flipEnabled = true
             )
         } else if (flip.value <= 90f) {

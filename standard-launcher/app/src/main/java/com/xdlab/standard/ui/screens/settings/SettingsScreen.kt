@@ -130,6 +130,14 @@ fun SettingsScreen(viewModel: StandardAppViewModel, onClose: () -> Unit) {
     var liveTiles by remember { mutableStateOf(prefs.getBoolean("live_tiles", true)) }
     var randomFlip by remember { mutableStateOf(prefs.getBoolean("random_flip", true)) }
     var notifPreviews by remember { mutableStateOf(prefs.getBoolean("notif_previews", true)) }
+    var customAccent by remember { mutableStateOf(prefs.getLong("custom_accent", 0L)) }
+    val hiddenPrefs = remember { context.getSharedPreferences("standard_hidden", Context.MODE_PRIVATE) }
+    var hiddenPackages by remember { mutableStateOf<List<String>>(hiddenPrefs.getStringSet("hidden", emptySet())?.toList() ?: emptyList()) }
+    var appearanceExpanded by remember { mutableStateOf(true) }
+    var homeExpanded by remember { mutableStateOf(true) }
+    var motionExpanded by remember { mutableStateOf(true) }
+    var systemExpanded by remember { mutableStateOf(true) }
+    var aboutExpanded by remember { mutableStateOf(true) }
 
     val version = remember {
         runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull() ?: "1.0"
@@ -166,305 +174,347 @@ fun SettingsScreen(viewModel: StandardAppViewModel, onClose: () -> Unit) {
                 }
             }
 
-            // ---------------- APPEARANCE ----------------
-            SectionHeader("APPEARANCE")
-            ThemeSwatches(
-                selected = settings.themeId,
-                onSelect = { tick(); viewModel.setThemeId(it) }
-            )
-            ToggleRow("DARK MODE", settings.darkMode) { tick(); viewModel.setDarkMode(it) }
-            ToggleRow("PAPER GRAIN", settings.useTexture) { tick(); viewModel.setUseTexture(it) }
-            if (settings.useTexture) {
-                val strengthLabel = when {
-                    settings.textureStrength < 0.08f -> "LIGHT"
-                    settings.textureStrength < 0.13f -> "MEDIUM"
-                    else -> "HEAVY"
+            CollapsibleSection(
+                title = "APPEARANCE",
+                expanded = appearanceExpanded,
+                onToggle = { appearanceExpanded = !appearanceExpanded }
+            ) {
+                ThemeSwatches(
+                    selected = settings.themeId,
+                    onSelect = { tick(); viewModel.setThemeId(it) }
+                )
+                ToggleRow("DARK MODE", settings.darkMode) { tick(); viewModel.setDarkMode(it) }
+                ToggleRow("PAPER GRAIN", settings.useTexture) { tick(); viewModel.setUseTexture(it) }
+                if (settings.useTexture) {
+                    val strengthLabel = when {
+                        settings.textureStrength < 0.08f -> "LIGHT"
+                        settings.textureStrength < 0.13f -> "MEDIUM"
+                        else -> "HEAVY"
+                    }
+                    ValueRow("GRAIN STRENGTH", strengthLabel) {
+                        tick()
+                        viewModel.setTextureStrength(
+                            when (strengthLabel) {
+                                "LIGHT" -> 0.10f
+                                "MEDIUM" -> 0.16f
+                                else -> 0.06f
+                            }
+                        )
+                    }
+                    ToggleRow("GRAIN DRIFT", settings.noiseDrift) { tick(); viewModel.setNoiseDrift(it) }
                 }
-                ValueRow("GRAIN STRENGTH", strengthLabel) {
+                ToggleRow("TIME-OF-DAY TINT", settings.timeOfDayTint) { tick(); viewModel.setTimeOfDayTint(it) }
+                ToggleRow("WALLPAPER BACKGROUND", wallpaperBg) {
                     tick()
-                    viewModel.setTextureStrength(
-                        when (strengthLabel) {
-                            "LIGHT" -> 0.10f
-                            "MEDIUM" -> 0.16f
-                            else -> 0.06f
+                    wallpaperBg = it
+                    prefs.edit().putBoolean("wallpaper_bg", it).apply()
+                }
+                ValueRow(
+                    "ICON STYLE",
+                    when (settings.iconStyle) {
+                        IconStyle.TEXT_ONLY -> "TEXT ONLY"
+                        IconStyle.ICON_ONLY -> "ICON ONLY"
+                        IconStyle.ICON_TEXT -> "ICON + TEXT"
+                    }
+                ) { tick(); viewModel.setIconStyle(settings.iconStyle.next()) }
+                ValueRow("ICON RENDER", TileIconStyle.entries[iconStyleGlobal].label) {
+                    tick()
+                    val nextStyle = TileIconStyle.entries[iconStyleGlobal].next()
+                    iconStyleGlobal = nextStyle.ordinal
+                    prefs.edit().putInt("icon_style_global", nextStyle.ordinal).apply()
+                }
+                AccentColorPicker(current = customAccent) { color ->
+                    tick()
+                    customAccent = color
+                    prefs.edit().putLong("custom_accent", color).apply()
+                }
+            }
+
+            CollapsibleSection(
+                title = "HOME",
+                expanded = homeExpanded,
+                onToggle = { homeExpanded = !homeExpanded }
+            ) {
+                ToggleRow("LIVE TILES", liveTiles) {
+                    tick()
+                    liveTiles = it
+                    prefs.edit().putBoolean("live_tiles", it).apply()
+                }
+                ToggleRow("RANDOM FLIP TIMING", randomFlip) {
+                    tick()
+                    randomFlip = it
+                    prefs.edit().putBoolean("random_flip", it).apply()
+                }
+                ToggleRow("NOTIFICATION PREVIEWS", notifPreviews) {
+                    tick()
+                    notifPreviews = it
+                    prefs.edit().putBoolean("notif_previews", it).apply()
+                }
+                SectionHeader("HOME MODULES")
+                HomeModule.entries.forEach { module ->
+                    ToggleRow(
+                        label = when (module) {
+                            HomeModule.SEARCH -> "SEARCH BAR"
+                            HomeModule.MEDIA -> "NOW PLAYING"
+                            HomeModule.BATTERY -> "BATTERY"
+                            HomeModule.PEOPLE -> "PEOPLE HUB"
+                            HomeModule.QUICK_SETTINGS -> "QUICK SETTINGS"
+                        },
+                        checked = module in settings.homeModules
+                    ) { on ->
+                        tick()
+                        viewModel.setHomeModules(if (on) settings.homeModules + module else settings.homeModules - module)
+                    }
+                }
+                SectionHeader("HOME TILES")
+                if (pinned.isEmpty()) {
+                    MonoLabel("NO PINNED APPS", size = 11.sp, color = colors.muted, modifier = Modifier.padding(vertical = 8.dp))
+                }
+                pinned.forEachIndexed { index, app ->
+                    PinnedAppRow(
+                        index = index,
+                        app = app,
+                        isFirst = index == 0,
+                        isLast = index == pinned.lastIndex,
+                        onUp = { tick(); viewModel.movePinned(app.packageName, -1) },
+                        onDown = { tick(); viewModel.movePinned(app.packageName, +1) },
+                        onUnpin = { tick(); viewModel.unpin(app.packageName) },
+                        onAccent = { tick(); viewModel.setAccent(if (app.isAccent) null else app.packageName) },
+                        onCaption = { viewModel.setCaption(app.packageName, it) }
+                    )
+                }
+                ActionRow("+ PIN AN APP") {
+                    picker = PickerRequest("PIN AN APP", allApps.filter { !it.pinned }) { app ->
+                        if (app != null) viewModel.setPinned(pinned.map { it.packageName } + app.packageName)
+                    }
+                }
+                SectionHeader("ACCENT APPS")
+                val accentApps by viewModel.accentApps.collectAsState()
+                val accentMode by viewModel.accentMode.collectAsState()
+                LaunchedEffect(Unit) {
+                    val rawApps = prefs.getString("accent_apps", null)
+                    if (rawApps != null) {
+                        viewModel.setAccentApps(rawApps.split(",").map { it.trim() }.filter { it.isNotEmpty() })
+                    }
+                    val rawMode = prefs.getString("accent_mode", null)
+                    if (rawMode != null) {
+                        viewModel.setAccentMode(rawMode)
+                    }
+                }
+                if (pinned.isEmpty()) {
+                    MonoLabel("NO PINNED APPS", size = 11.sp, color = colors.muted, modifier = Modifier.padding(vertical = 8.dp))
+                }
+                pinned.forEach { app ->
+                    AccentAppCheckRow(
+                        label = app.label,
+                        checked = app.packageName in accentApps,
+                        enabled = app.packageName in accentApps || accentApps.size < 5,
+                        onToggle = {
+                            tick()
+                            val next = if (app.packageName in accentApps) accentApps - app.packageName else accentApps + app.packageName
+                            viewModel.setAccentApps(next)
+                            prefs.edit().putString("accent_apps", next.joinToString(",")).apply()
                         }
                     )
                 }
-                ToggleRow("GRAIN DRIFT", settings.noiseDrift) { tick(); viewModel.setNoiseDrift(it) }
-            }
-            ToggleRow("TIME-OF-DAY TINT", settings.timeOfDayTint) { tick(); viewModel.setTimeOfDayTint(it) }
-            ToggleRow("WALLPAPER BACKGROUND", wallpaperBg) {
-                tick()
-                wallpaperBg = it
-                prefs.edit().putBoolean("wallpaper_bg", it).apply()
-            }
-            ValueRow(
-                "ICON STYLE",
-                when (settings.iconStyle) {
-                    IconStyle.TEXT_ONLY -> "TEXT ONLY"
-                    IconStyle.ICON_ONLY -> "ICON ONLY"
-                    IconStyle.ICON_TEXT -> "ICON + TEXT"
-                }
-            ) { tick(); viewModel.setIconStyle(settings.iconStyle.next()) }
-
-            // ---------------- HOME ----------------
-            SectionHeader("HOME TILES")
-            if (pinned.isEmpty()) {
-                MonoLabel("NO PINNED APPS", size = 11.sp, color = colors.muted, modifier = Modifier.padding(vertical = 8.dp))
-            }
-            pinned.forEachIndexed { index, app ->
-                PinnedAppRow(
-                    index = index,
-                    app = app,
-                    isFirst = index == 0,
-                    isLast = index == pinned.lastIndex,
-                    onUp = { tick(); viewModel.movePinned(app.packageName, -1) },
-                    onDown = { tick(); viewModel.movePinned(app.packageName, +1) },
-                    onUnpin = { tick(); viewModel.unpin(app.packageName) },
-                    onAccent = { tick(); viewModel.setAccent(if (app.isAccent) null else app.packageName) },
-                    onCaption = { viewModel.setCaption(app.packageName, it) }
-                )
-            }
-            ActionRow("+ PIN AN APP") {
-                picker = PickerRequest("PIN AN APP", allApps.filter { !it.pinned }) { app ->
-                    if (app != null) viewModel.setPinned(pinned.map { it.packageName } + app.packageName)
-                }
-            }
-            SectionHeader("ACCENT APPS")
-            val accentApps by viewModel.accentApps.collectAsState()
-            val accentMode by viewModel.accentMode.collectAsState()
-            LaunchedEffect(Unit) {
-                val rawApps = prefs.getString("accent_apps", null)
-                if (rawApps != null) {
-                    viewModel.setAccentApps(rawApps.split(",").map { it.trim() }.filter { it.isNotEmpty() })
-                }
-                val rawMode = prefs.getString("accent_mode", null)
-                if (rawMode != null) {
-                    viewModel.setAccentMode(rawMode)
-                }
-            }
-            if (pinned.isEmpty()) {
-                MonoLabel("NO PINNED APPS", size = 11.sp, color = colors.muted, modifier = Modifier.padding(vertical = 8.dp))
-            }
-            pinned.forEach { app ->
-                AccentAppCheckRow(
-                    label = app.label,
-                    checked = app.packageName in accentApps,
-                    enabled = app.packageName in accentApps || accentApps.size < 5,
-                    onToggle = {
-                        tick()
-                        val next = if (app.packageName in accentApps) accentApps - app.packageName else accentApps + app.packageName
-                        viewModel.setAccentApps(next)
-                        prefs.edit().putString("accent_apps", next.joinToString(",")).apply()
-                    }
-                )
-            }
-            AccentModeButtons(selected = accentMode) { mode ->
-                tick()
-                viewModel.setAccentMode(mode)
-                prefs.edit().putString("accent_mode", mode).apply()
-            }
-            ToggleRow("NOTIFICATION PREVIEWS", notifPreviews) {
-                tick()
-                notifPreviews = it
-                prefs.edit().putBoolean("notif_previews", it).apply()
-            }
-            SectionHeader("HOME MODULES")
-            HomeModule.entries.forEach { module ->
-                ToggleRow(
-                    label = when (module) {
-                        HomeModule.SEARCH -> "SEARCH BAR"
-                        HomeModule.MEDIA -> "NOW PLAYING"
-                        HomeModule.BATTERY -> "BATTERY"
-                        HomeModule.PEOPLE -> "PEOPLE HUB"
-                        HomeModule.QUICK_SETTINGS -> "QUICK SETTINGS"
-                    },
-                    checked = module in settings.homeModules
-                ) { on ->
+                AccentModeButtons(selected = accentMode) { mode ->
                     tick()
-                    viewModel.setHomeModules(if (on) settings.homeModules + module else settings.homeModules - module)
+                    viewModel.setAccentMode(mode)
+                    prefs.edit().putString("accent_mode", mode).apply()
                 }
-            }
-
-            // ---------------- DRAWER ----------------
-            SectionHeader("QUICK TOOLS")
-            (0 until 4).forEach { slot ->
-                val app = quickTools.getOrNull(slot)
-                ValueRow("SLOT ${slot + 1}", app?.label?.uppercase() ?: "EMPTY") {
-                    picker = PickerRequest("QUICK TOOL ${slot + 1}", allApps, allowNone = app != null) { chosen ->
-                        val current = quickTools.map { it.packageName }.toMutableList()
-                        if (chosen == null) {
-                            if (slot < current.size) current.removeAt(slot)
-                        } else if (slot < current.size) {
-                            current[slot] = chosen.packageName
-                        } else {
-                            current.add(chosen.packageName)
+                SectionHeader("QUICK TOOLS")
+                (0 until 4).forEach { slot ->
+                    val app = quickTools.getOrNull(slot)
+                    ValueRow("SLOT ${slot + 1}", app?.label?.uppercase() ?: "EMPTY") {
+                        picker = PickerRequest("QUICK TOOL ${slot + 1}", allApps, allowNone = app != null) { chosen ->
+                            val current = quickTools.map { it.packageName }.toMutableList()
+                            if (chosen == null) {
+                                if (slot < current.size) current.removeAt(slot)
+                            } else if (slot < current.size) {
+                                current[slot] = chosen.packageName
+                            } else {
+                                current.add(chosen.packageName)
+                            }
+                            viewModel.setQuickTools(current.filter { it.isNotBlank() })
                         }
-                        viewModel.setQuickTools(current.filter { it.isNotBlank() })
                     }
                 }
-            }
-
-            // ---------------- FOCUS ----------------
-            SectionHeader("FOCUS APPS")
-            focusApps.forEachIndexed { index, app ->
-                ListEditRow(
-                    label = "%02d  %s".format(index + 1, app.label.uppercase()),
-                    isFirst = index == 0,
-                    isLast = index == focusApps.lastIndex,
-                    onUp = { tick(); viewModel.setFocusApps(focusApps.map { it.packageName }.swap(index, index - 1)) },
-                    onDown = { tick(); viewModel.setFocusApps(focusApps.map { it.packageName }.swap(index, index + 1)) },
-                    onRemove = { tick(); viewModel.setFocusApps(focusApps.map { it.packageName } - app.packageName) }
+                SectionHeader("FOCUS APPS")
+                focusApps.forEachIndexed { index, app ->
+                    ListEditRow(
+                        label = "%02d  %s".format(index + 1, app.label.uppercase()),
+                        isFirst = index == 0,
+                        isLast = index == focusApps.lastIndex,
+                        onUp = { tick(); viewModel.setFocusApps(focusApps.map { it.packageName }.swap(index, index - 1)) },
+                        onDown = { tick(); viewModel.setFocusApps(focusApps.map { it.packageName }.swap(index, index + 1)) },
+                        onRemove = { tick(); viewModel.setFocusApps(focusApps.map { it.packageName } - app.packageName) }
+                    )
+                }
+                if (focusApps.size < 10) {
+                    ActionRow("+ ADD TO FOCUS") {
+                        picker = PickerRequest("ADD TO FOCUS", allApps.filter { a -> focusApps.none { it.packageName == a.packageName } }) { app ->
+                            if (app != null) viewModel.setFocusApps(focusApps.map { it.packageName } + app.packageName)
+                        }
+                    }
+                }
+                SectionHeader("QUOTES")
+                settings.quotes.forEachIndexed { index, quote ->
+                    ListEditRow(
+                        label = quote,
+                        isFirst = true,
+                        isLast = true,
+                        onUp = {},
+                        onDown = {},
+                        onRemove = { tick(); viewModel.setQuotes(settings.quotes.filterIndexed { i, _ -> i != index }) },
+                        showArrows = false
+                    )
+                }
+                var newQuote by remember { mutableStateOf("") }
+                BrutalTextField(
+                    value = newQuote,
+                    onValueChange = { newQuote = it },
+                    placeholder = "NEW QUOTE //",
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    onDone = {
+                        if (newQuote.isNotBlank()) {
+                            viewModel.setQuotes(settings.quotes + newQuote.trim().uppercase())
+                            newQuote = ""
+                        }
+                    },
+                    trailingLabel = "ADD"
                 )
-            }
-            if (focusApps.size < 10) {
-                ActionRow("+ ADD TO FOCUS") {
-                    picker = PickerRequest("ADD TO FOCUS", allApps.filter { a -> focusApps.none { it.packageName == a.packageName } }) { app ->
-                        if (app != null) viewModel.setFocusApps(focusApps.map { it.packageName } + app.packageName)
-                    }
+                SectionHeader("CLOCK & WEATHER")
+                LocationEditor(viewModel = viewModel, currentName = settings.weatherLocation.name)
+                ValueRow("UNITS", if (settings.weatherUnit == WeatherUnit.CELSIUS) "°C · KM/H" else "°F · MPH") {
+                    tick()
+                    viewModel.setWeatherUnit(if (settings.weatherUnit == WeatherUnit.CELSIUS) WeatherUnit.FAHRENHEIT else WeatherUnit.CELSIUS)
                 }
-            }
-
-            // ---------------- QUOTES ----------------
-            SectionHeader("QUOTES")
-            settings.quotes.forEachIndexed { index, quote ->
-                ListEditRow(
-                    label = quote,
-                    isFirst = true,
-                    isLast = true,
-                    onUp = {},
-                    onDown = {},
-                    onRemove = { tick(); viewModel.setQuotes(settings.quotes.filterIndexed { i, _ -> i != index }) },
-                    showArrows = false
-                )
-            }
-            var newQuote by remember { mutableStateOf("") }
-            BrutalTextField(
-                value = newQuote,
-                onValueChange = { newQuote = it },
-                placeholder = "NEW QUOTE //",
-                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                onDone = {
-                    if (newQuote.isNotBlank()) {
-                        viewModel.setQuotes(settings.quotes + newQuote.trim().uppercase())
-                        newQuote = ""
-                    }
-                },
-                trailingLabel = "ADD"
-            )
-
-            // ---------------- MOTION ----------------
-            SectionHeader("MOTION")
-            ValueRow(
-                "TILE ANIMATION",
-                when (settings.animationStyle) {
-                    AnimationStyle.TAP_FLIP -> "TAP FLIP"
-                    AnimationStyle.CUBE -> "WINDOWS 8.1 3D ROTATE"
-                    AnimationStyle.SMOOTH -> "SMOOTH"
-                }
-            ) { tick(); viewModel.setAnimationStyle(settings.animationStyle.next()) }
-            ToggleRow("CINEMATIC INTRO", settings.cinematicIntro) { tick(); viewModel.setCinematicIntro(it) }
-            ToggleRow("GLANCE (HOLD A TAB)", settings.glanceEnabled) { tick(); viewModel.setGlanceEnabled(it) }
-            ToggleRow("HAPTICS", settings.hapticsEnabled) { viewModel.setHaptics(it) }
-            var silkyPager by remember { mutableStateOf(settings.silkyPager) }
-            ToggleRow("SILKY PAGER", silkyPager) { silkyPager = it; viewModel.setSilkyPager(it) }
-            var slideableHome by remember { mutableStateOf(settings.slideableHome) }
-            ToggleRow("SLIDEABLE HOME", slideableHome) { slideableHome = it; viewModel.setSlideableHome(it) }
-            var motionTouch by remember { mutableStateOf(settings.motionTouch) }
-            ToggleRow("MOTION TOUCH", motionTouch) { motionTouch = it; viewModel.setMotionTouch(it) }
-            ToggleRow("LIVE TILES", liveTiles) {
-                tick()
-                liveTiles = it
-                prefs.edit().putBoolean("live_tiles", it).apply()
-            }
-            ToggleRow("RANDOM FLIP TIMING", randomFlip) {
-                tick()
-                randomFlip = it
-                prefs.edit().putBoolean("random_flip", it).apply()
-            }
-
-            SectionHeader("SMOOTHNESS")
-            ValueRow("SMOOTHNESS", SmoothnessLabels[smoothness]) {
-                tick()
-                val next = (smoothness + 1) % SmoothnessLabels.size
-                smoothness = next
-                prefs.edit().putInt("smoothness_level", next).apply()
-            }
-
-            SectionHeader("ICON STYLE")
-            ValueRow("GLOBAL", TileIconStyle.entries[iconStyleGlobal].label) {
-                tick()
-                val nextStyle = TileIconStyle.entries[iconStyleGlobal].next()
-                iconStyleGlobal = nextStyle.ordinal
-                prefs.edit().putInt("icon_style_global", nextStyle.ordinal).apply()
-            }
-
-            // ---------------- CLOCK & WEATHER ----------------
-            SectionHeader("CLOCK & WEATHER")
-            LocationEditor(viewModel = viewModel, currentName = settings.weatherLocation.name)
-            ValueRow("UNITS", if (settings.weatherUnit == WeatherUnit.CELSIUS) "°C · KM/H" else "°F · MPH") {
-                tick()
-                viewModel.setWeatherUnit(if (settings.weatherUnit == WeatherUnit.CELSIUS) WeatherUnit.FAHRENHEIT else WeatherUnit.CELSIUS)
-            }
-            ValueRow(
-                "CLOCK",
-                when (settings.clockFormat) {
-                    ClockFormat.AUTO -> "AUTO"
-                    ClockFormat.H12 -> "12 HOUR"
-                    ClockFormat.H24 -> "24 HOUR"
-                }
-            ) {
-                tick()
-                viewModel.setClockFormat(
+                ValueRow(
+                    "CLOCK",
                     when (settings.clockFormat) {
-                        ClockFormat.AUTO -> ClockFormat.H12
-                        ClockFormat.H12 -> ClockFormat.H24
-                        ClockFormat.H24 -> ClockFormat.AUTO
+                        ClockFormat.AUTO -> "AUTO"
+                        ClockFormat.H12 -> "12 HOUR"
+                        ClockFormat.H24 -> "24 HOUR"
                     }
-                )
-            }
-
-            // ---------------- SYSTEM ----------------
-            SectionHeader("SYSTEM")
-            DefaultLauncherRow()
-            ActionRow(if (viewModel.mediaAccessGranted()) "NOTIFICATION ACCESS · GRANTED" else "NOTIFICATION ACCESS FOR NOW PLAYING") {
-                context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-            }
-            ActionRow(
-                label = if (resetArmed == 1) "TAP AGAIN TO RESET LAYOUT" else "RESET LAYOUT",
-                destructive = resetArmed == 1
-            ) {
-                if (resetArmed != 1) {
-                    resetArmed = 1
-                } else {
-                    resetArmed = 0
-                    viewModel.resetLayout()
-                    Toast.makeText(context, "LAYOUT RESET", Toast.LENGTH_SHORT).show()
-                }
-            }
-            ActionRow(
-                label = if (resetArmed == 2) "TAP AGAIN TO RESET EVERYTHING" else "RESET EVERYTHING",
-                destructive = resetArmed == 2
-            ) {
-                if (resetArmed != 2) {
-                    resetArmed = 2
-                } else {
-                    resetArmed = 0
-                    viewModel.resetEverything()
-                    Toast.makeText(context, "ALL SETTINGS RESET", Toast.LENGTH_SHORT).show()
+                ) {
+                    tick()
+                    viewModel.setClockFormat(
+                        when (settings.clockFormat) {
+                            ClockFormat.AUTO -> ClockFormat.H12
+                            ClockFormat.H12 -> ClockFormat.H24
+                            ClockFormat.H24 -> ClockFormat.AUTO
+                        }
+                    )
                 }
             }
 
-            // ---------------- ABOUT ----------------
-            SectionHeader("ABOUT")
-            AboutRow("VERSION", version)
-            AboutRow("FONTS", "SPACE GROTESK + JETBRAINS MONO (OFL)")
-            AboutRow("WEATHER", "OPEN-METEO")
-            AboutRow("PRIVACY", "NO TRACKING. NO CLOUD SYNC.")
-            Spacer(Modifier.height(24.dp))
-            MonoLabel("SAME PHONE. HIGHER STANDARDS.", size = 10.sp, color = colors.muted)
-            Spacer(Modifier.height(10.dp))
-            MonoLabel(stringResource(R.string.developer), size = 10.sp, color = colors.ink, weight = FontWeight.Bold)
+            CollapsibleSection(
+                title = "MOTION",
+                expanded = motionExpanded,
+                onToggle = { motionExpanded = !motionExpanded }
+            ) {
+                ValueRow(
+                    "TILE ANIMATION",
+                    when (settings.animationStyle) {
+                        AnimationStyle.TAP_FLIP -> "TAP FLIP"
+                        AnimationStyle.CUBE -> "WINDOWS 8.1 3D ROTATE"
+                        AnimationStyle.SMOOTH -> "SMOOTH"
+                    }
+                ) { tick(); viewModel.setAnimationStyle(settings.animationStyle.next()) }
+                ValueRow("SMOOTHNESS", SmoothnessLabels[smoothness]) {
+                    tick()
+                    val next = (smoothness + 1) % SmoothnessLabels.size
+                    smoothness = next
+                    prefs.edit().putInt("smoothness_level", next).apply()
+                }
+                ToggleRow("CINEMATIC INTRO", settings.cinematicIntro) { tick(); viewModel.setCinematicIntro(it) }
+                var silkyPager by remember { mutableStateOf(settings.silkyPager) }
+                ToggleRow("SILKY PAGER", silkyPager) { silkyPager = it; viewModel.setSilkyPager(it) }
+                var slideableHome by remember { mutableStateOf(settings.slideableHome) }
+                ToggleRow("SLIDEABLE HOME", slideableHome) { slideableHome = it; viewModel.setSlideableHome(it) }
+                var motionTouch by remember { mutableStateOf(settings.motionTouch) }
+                ToggleRow("MOTION TOUCH", motionTouch) { motionTouch = it; viewModel.setMotionTouch(it) }
+                ToggleRow("GLANCE (HOLD A TAB)", settings.glanceEnabled) { tick(); viewModel.setGlanceEnabled(it) }
+                ToggleRow("HAPTICS", settings.hapticsEnabled) { viewModel.setHaptics(it) }
+            }
+
+            CollapsibleSection(
+                title = "SYSTEM",
+                expanded = systemExpanded,
+                onToggle = { systemExpanded = !systemExpanded }
+            ) {
+                DefaultLauncherRow()
+                ActionRow(if (viewModel.mediaAccessGranted()) "NOTIFICATION ACCESS · GRANTED" else "NOTIFICATION ACCESS FOR NOW PLAYING") {
+                    context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                }
+                ActionRow(
+                    label = if (resetArmed == 1) "TAP AGAIN TO RESET LAYOUT" else "RESET LAYOUT",
+                    destructive = resetArmed == 1
+                ) {
+                    if (resetArmed != 1) {
+                        resetArmed = 1
+                    } else {
+                        resetArmed = 0
+                        viewModel.resetLayout()
+                        Toast.makeText(context, "LAYOUT RESET", Toast.LENGTH_SHORT).show()
+                    }
+                }
+                ActionRow(
+                    label = if (resetArmed == 2) "TAP AGAIN TO RESET EVERYTHING" else "RESET EVERYTHING",
+                    destructive = resetArmed == 2
+                ) {
+                    if (resetArmed != 2) {
+                        resetArmed = 2
+                    } else {
+                        resetArmed = 0
+                        viewModel.resetEverything()
+                        Toast.makeText(context, "ALL SETTINGS RESET", Toast.LENGTH_SHORT).show()
+                    }
+                }
+                ActionRow("BACKUP / RESTORE") {
+                    Toast.makeText(context, "USE BUTTONS BELOW", Toast.LENGTH_SHORT).show()
+                }
+                com.xdlab.standard.ui.components.BackupRestoreButtons(modifier = Modifier.fillMaxWidth())
+                SectionHeader("HIDDEN APPS")
+                val hiddenApps = allApps.filter { it.packageName in hiddenPackages }
+                if (hiddenApps.isEmpty()) {
+                    MonoLabel("NO HIDDEN APPS", size = 11.sp, color = colors.muted, modifier = Modifier.padding(vertical = 8.dp))
+                }
+                hiddenApps.forEach { app ->
+                    RowShell {
+                        MonoLabel(app.label, size = 12.sp, weight = FontWeight.Bold, color = colors.ink, modifier = Modifier.weight(1f), maxLines = 1)
+                        Spacer(Modifier.width(10.dp))
+                        Box(
+                            modifier = Modifier
+                                .border(2.dp, colors.ink)
+                                .plainClickable {
+                                    tick()
+                                    val next = hiddenPackages - app.packageName
+                                    hiddenPackages = next
+                                    hiddenPrefs.edit().putStringSet("hidden", next.toSet()).apply()
+                                }
+                                .padding(horizontal = 12.dp, vertical = 6.dp)
+                        ) {
+                            MonoLabel("UNHIDE", size = 10.sp, weight = FontWeight.Bold, color = colors.ink)
+                        }
+                    }
+                }
+            }
+
+            CollapsibleSection(
+                title = "ABOUT",
+                expanded = aboutExpanded,
+                onToggle = { aboutExpanded = !aboutExpanded }
+            ) {
+                AboutRow("VERSION", version)
+                AboutRow("FONTS", "SPACE GROTESK + JETBRAINS MONO (OFL)")
+                AboutRow("WEATHER", "OPEN-METEO")
+                AboutRow("PRIVACY", "NO TRACKING. NO CLOUD SYNC.")
+                Spacer(Modifier.height(24.dp))
+                MonoLabel("SAME PHONE. HIGHER STANDARDS.", size = 10.sp, color = colors.muted)
+                Spacer(Modifier.height(10.dp))
+                MonoLabel(stringResource(R.string.developer), size = 10.sp, color = colors.ink, weight = FontWeight.Bold)
+            }
         }
 
         picker?.let { request ->
@@ -521,6 +571,81 @@ private fun SectionHeader(title: String) {
         MonoLabel(title, size = 11.sp, weight = FontWeight.Bold, color = colors.ink)
         Spacer(Modifier.height(6.dp))
         Box(Modifier.fillMaxWidth().height(2.dp).background(colors.ink))
+    }
+}
+
+@Composable
+private fun CollapsibleSection(
+    title: String,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+    content: @Composable () -> Unit
+) {
+    val colors = LocalAppTheme.current
+    Column(modifier = Modifier.fillMaxWidth().padding(top = 26.dp, bottom = 6.dp)) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .plainClickable(onToggle)
+                .semantics { contentDescription = "$title section, ${if (expanded) "collapse" else "expand"}" },
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            MonoLabel(title, size = 11.sp, weight = FontWeight.Bold, color = colors.ink)
+            MonoLabel(if (expanded) "–" else "+", size = 16.sp, weight = FontWeight.Bold, color = colors.ink)
+        }
+        Spacer(Modifier.height(6.dp))
+        Box(Modifier.fillMaxWidth().height(2.dp).background(colors.ink))
+    }
+    if (expanded) {
+        content()
+    }
+}
+
+@Composable
+private fun AccentColorPicker(current: Long, onPick: (Long) -> Unit) {
+    val colors = LocalAppTheme.current
+    val presets = remember {
+        listOf(
+            0xFFE53935L, 0xFFFB8C00L, 0xFFFDD835L, 0xFF43A047L,
+            0xFF00897BL, 0xFF1E88E5L, 0xFF8E24AAL, 0xFFD81B60L
+        )
+    }
+    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            presets.forEach { color ->
+                val isSelected = color == current
+                Box(
+                    modifier = Modifier
+                        .size(28.dp)
+                        .background(Color(color))
+                        .border(if (isSelected) 3.dp else 2.dp, if (isSelected) colors.ink else colors.ink.copy(alpha = 0.35f))
+                        .plainClickable { onPick(color) }
+                        .semantics { contentDescription = "Accent color" }
+                )
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            MonoLabel("CUSTOM ACCENT", size = 11.sp, color = colors.muted)
+            val isDefault = current == 0L
+            Box(
+                modifier = Modifier
+                    .border(2.dp, if (isDefault) colors.accent else colors.ink)
+                    .background(if (isDefault) colors.accent else Color.Transparent)
+                    .plainClickable { onPick(0L) }
+                    .padding(horizontal = 12.dp, vertical = 6.dp)
+            ) {
+                MonoLabel("DEFAULT", size = 10.sp, weight = FontWeight.Bold, color = if (isDefault) colors.onAccent else colors.ink)
+            }
+        }
     }
 }
 
