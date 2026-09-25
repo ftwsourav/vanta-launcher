@@ -7,22 +7,35 @@ plugins {
 }
 
 android {
-    namespace = "com.xdlab.standard"
+    namespace = "app.vanta.launcher"
     compileSdk = 35
 
+    signingConfigs {
+        create("release") {
+            storeFile = file("vanta-release.jks")
+            storePassword = "vanta2026"
+            keyAlias = "vanta"
+            keyPassword = "vanta2026"
+        }
+    }
+
     defaultConfig {
-        applicationId = "com.xdlab.standard"
+        applicationId = "app.vanta.launcher"
         minSdk = 30
         targetSdk = 35
-        versionCode = 51
-        versionName = "5.1"
+        versionCode = 52
+        versionName = "5.2"
         vectorDrawables { useSupportLibrary = true }
+        ndk {
+            abiFilters += listOf("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
+        }
     }
 
     buildTypes {
         release {
-            isMinifyEnabled = true
-            isShrinkResources = true
+            isMinifyEnabled = false
+            isShrinkResources = false
+            signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -30,6 +43,7 @@ android {
         }
         debug {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("release")
         }
     }
 

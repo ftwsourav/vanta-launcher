@@ -1,0 +1,5 @@
+
+# Release keystore (do not commit)
+vanta-release.jks
+*.jks
+*.keystore
