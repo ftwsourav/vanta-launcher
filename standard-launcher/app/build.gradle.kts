@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -12,10 +14,17 @@ android {
 
     signingConfigs {
         create("release") {
-            storeFile = file("vanta-release.jks")
-            storePassword = "vanta2026"
-            keyAlias = "vanta"
-            keyPassword = "vanta2026"
+            // Signing secrets live in standard-launcher/keystore.properties (git-ignored):
+            //   storeFile=C:/path/to/vanta-release.jks  storePassword=...  keyAlias=vanta  keyPassword=...
+            val props = Properties()
+            val propsFile = rootProject.file("keystore.properties")
+            if (propsFile.exists()) {
+                propsFile.inputStream().use { props.load(it) }
+                storeFile = file(props.getProperty("storeFile"))
+                storePassword = props.getProperty("storePassword")
+                keyAlias = props.getProperty("keyAlias")
+                keyPassword = props.getProperty("keyPassword")
+            }
         }
     }
 
@@ -35,7 +44,8 @@ android {
         release {
             isMinifyEnabled = false
             isShrinkResources = false
-            signingConfig = signingConfigs.getByName("release")
+            // Signed only when keystore.properties is present; clones without it still build.
+            signingConfig = if (rootProject.file("keystore.properties").exists()) signingConfigs.getByName("release") else null
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -43,7 +53,8 @@ android {
         }
         debug {
             isMinifyEnabled = false
-            signingConfig = signingConfigs.getByName("release")
+            // Signed only when keystore.properties is present; clones without it still build.
+            signingConfig = if (rootProject.file("keystore.properties").exists()) signingConfigs.getByName("release") else null
         }
     }
 

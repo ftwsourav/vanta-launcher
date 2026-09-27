@@ -3,3 +3,6 @@
 vanta-release.jks
 *.jks
 *.keystore
+
+# signing secrets (see keystore.properties.example)
+keystore.properties
