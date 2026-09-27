@@ -17,7 +17,7 @@
 - Live page now shows every app's notifications, with swipe-to-dismiss cards.
 - New mark: ink tile, paper outline, display-weight V, one red accent square.
 
-A brutalist Android launcher replacement inspired by Windows Phone 8.1 / Lumia Metro UI. Built with Kotlin + Jetpack Compose. Targets Android 14+ with 120Hz smoothness.
+A brutalist Android launcher replacement inspired by Windows Phone 8.1 / Lumia Metro UI. Built with Kotlin + Jetpack Compose. Runs on Android 11+ and targets Android 15, tuned for 120 Hz.
 
 **Developer:** [@ftwsourav](https://github.com/ftwsourav)
 
@@ -77,7 +77,7 @@ Grab the latest APK from the [Releases page](https://github.com/ftwsourav/vanta-
 - **120fps** support
 
 ### Motion
-- **Cinematic intro** — 800ms 3-phase splash (shard fall + grain burst)
+- **Cinematic intro** — 650 ms splash: the Vanta mark scales up through paper grain and wipes into the home page
 - **Glance screen** — large clock, tap to dismiss
 - **Turnstile transition** — tile scales up to fullscreen on app launch
 - **Home return transition** — content fades + scales in smoothly
@@ -104,7 +104,7 @@ Grab the latest APK from the [Releases page](https://github.com/ftwsourav/vanta-
 | UI | Jetpack Compose (BOM 2024.12) |
 | Architecture | MVVM + Repository pattern |
 | Min SDK | 30 (Android 11) |
-| Target SDK | 34 (Android 14) |
+| Target SDK | 35 (Android 15) |
 | Compile SDK | 35 |
 | Build | Gradle 8.9 |
 | Fonts | Space Grotesk + JetBrains Mono |
