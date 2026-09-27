@@ -4,6 +4,20 @@
 
 > Good apps. Better days.
 
+[![Latest release](https://img.shields.io/github/v/release/ftwsourav/vanta-launcher?label=latest&color=D93A2B&style=flat-square)](https://github.com/ftwsourav/vanta-launcher/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/ftwsourav/vanta-launcher/total?color=111111&style=flat-square)](https://github.com/ftwsourav/vanta-launcher/releases)
+![Android 11+](https://img.shields.io/badge/android-11%2B-111111?style=flat-square)
+![Kotlin · Compose](https://img.shields.io/badge/kotlin%20%C2%B7%20compose-ECE8DF?style=flat-square&labelColor=111111)
+
+**Current version: v5.4 "Turnstile"** — [download the APK](https://github.com/ftwsourav/vanta-launcher/releases/download/v5.4/Vanta-v5.4-release.apk) · [release notes](https://github.com/ftwsourav/vanta-launcher/releases/tag/v5.4) · [full changelog](PROGRESS_CHANGELOG.md)
+
+## What's new in 5.4
+- Tiles turnstile in around the left edge every time you return to the launcher; apps reveal out of their own tile.
+- Windows 8.1 edge-pivot, WP7 turnstile and parallax page transitions, all in the draw phase at 120 Hz.
+- Edge-swipe gesture actions, Windows Phone toggle switches, semantic-zoom A–Z grid, brutalist quick settings.
+- Live page now shows every app's notifications, with swipe-to-dismiss cards.
+- New mark: ink tile, paper outline, display-weight V, one red accent square.
+
 A brutalist Android launcher replacement inspired by Windows Phone 8.1 / Lumia Metro UI. Built with Kotlin + Jetpack Compose. Targets Android 14+ with 120Hz smoothness.
 
 **Developer:** [@ftwsourav](https://github.com/ftwsourav)
