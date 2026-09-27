@@ -1,6 +1,8 @@
+<p align="center"><img src="logos/hero_banner.svg" width="820" alt="Vanta"></p>
+
 # Vanta
 
-> A Clean, Powerful Launcher That Blends Productivity
+> Good apps. Better days.
 
 A brutalist Android launcher replacement inspired by Windows Phone 8.1 / Lumia Metro UI. Built with Kotlin + Jetpack Compose. Targets Android 14+ with 120Hz smoothness.
 

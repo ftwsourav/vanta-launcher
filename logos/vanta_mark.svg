@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <!-- Vanta mark v5.4: ink tile, paper outline, display-weight V, one red accent square -->
+  <rect width="512" height="512" fill="#111111"/>
+  <rect x="48" y="48" width="416" height="416" fill="none" stroke="#EDE9E0" stroke-width="10"/>
+  <path d="M104 127 L192 127 L239 296 L288 127 L376 127 L280 400 L200 400 Z" fill="#EDE9E0"/>
+  <rect x="393" y="65" width="54" height="54" fill="#D93A2B"/>
+</svg>

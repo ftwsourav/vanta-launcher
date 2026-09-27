@@ -1,12 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Vanta mark: paper-outlined ink tile, display-weight V, one red accent square (the live-tile marker). -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <group android:scaleX="0.62" android:scaleY="0.62" android:translateX="20.5" android:translateY="20.5">
-        <path android:fillColor="#FF6F00" android:pathData="M0,0 L108,0 L108,6 L0,6 Z"/>
-        <path android:fillColor="#F4F1EA" android:pathData="M20,24 L54,84 L88,24 L72,24 L54,56 L36,24 Z"/>
-        <path android:strokeColor="#F4F1EA" android:strokeWidth="2" android:pathData="M6,6 L102,6 L102,102 L6,102 Z"/>
-    </group>
+    <!-- tile outline, inset so square and squircle masks keep the whole frame -->
+    <path
+        android:strokeColor="#EDE9E0"
+        android:strokeWidth="2.5"
+        android:strokeLineJoin="miter"
+        android:pathData="M28,28 L80,28 L80,80 L28,80 Z" />
+    <!-- V -->
+    <path
+        android:fillColor="#EDE9E0"
+        android:pathData="M35,38 L46,38 L52,59 L58,38 L69,38 L57,72 L47,72 Z" />
+    <!-- accent square, top-right like a live tile -->
+    <path
+        android:fillColor="#D93A2B"
+        android:pathData="M71,31 L78,31 L78,38 L71,38 Z" />
 </vector>

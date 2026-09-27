@@ -56,21 +56,26 @@ fun VantaLogo(
                         size = Size(w * 0.82f, h * 0.82f),
                         style = Stroke(width = w * 0.012f)
                     )
-                    drawRect(
-                        color = accent,
-                        topLeft = Offset(w * 0.09f, h * 0.09f),
-                        size = Size(w * 0.82f, h * 0.012f)
-                    )
+                    // Same geometry as the launcher icon: chunky V inside the outline, accent square top-right.
+                    val l = w * 0.09f
+                    val t = h * 0.09f
+                    val s = w * 0.82f
                     val path = Path().apply {
-                        moveTo(w * 0.27f, h * 0.27f)
-                        lineTo(w * 0.5f, h * 0.77f)
-                        lineTo(w * 0.73f, h * 0.27f)
-                        lineTo(w * 0.59f, h * 0.27f)
-                        lineTo(w * 0.5f, h * 0.49f)
-                        lineTo(w * 0.41f, h * 0.27f)
+                        moveTo(l + s * 0.135f, t + s * 0.19f)
+                        lineTo(l + s * 0.346f, t + s * 0.19f)
+                        lineTo(l + s * 0.46f, t + s * 0.596f)
+                        lineTo(l + s * 0.577f, t + s * 0.19f)
+                        lineTo(l + s * 0.788f, t + s * 0.19f)
+                        lineTo(l + s * 0.558f, t + s * 0.846f)
+                        lineTo(l + s * 0.365f, t + s * 0.846f)
                         close()
                     }
                     drawPath(path, color = ink)
+                    drawRect(
+                        color = accent,
+                        topLeft = Offset(l + s * 0.83f, t + s * 0.04f),
+                        size = Size(s * 0.13f, s * 0.13f)
+                    )
                 }
                 VantaLogoStyle.AccentBlock -> {
                     drawRect(color = bg, size = Size(w, h))
