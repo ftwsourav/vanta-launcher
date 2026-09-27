@@ -4,8 +4,7 @@
 
 > Good apps. Better days.
 
-[![Latest release](https://img.shields.io/github/v/release/ftwsourav/vanta-launcher?label=latest&color=D93A2B&style=flat-square)](https://github.com/ftwsourav/vanta-launcher/releases/latest)
-[![Downloads](https://img.shields.io/github/downloads/ftwsourav/vanta-launcher/total?color=111111&style=flat-square)](https://github.com/ftwsourav/vanta-launcher/releases)
+[![Latest release v5.4](https://img.shields.io/badge/release-v5.4-D93A2B?style=flat-square)](https://github.com/ftwsourav/vanta-launcher/releases/latest)
 ![Android 11+](https://img.shields.io/badge/android-11%2B-111111?style=flat-square)
 ![Kotlin · Compose](https://img.shields.io/badge/kotlin%20%C2%B7%20compose-ECE8DF?style=flat-square&labelColor=111111)
 
