@@ -555,12 +555,16 @@ private fun AppTileFace(
             if (iconStyle == IconStyle.ICON_ONLY) {
                 AppIcon(packageName = app.packageName, size = 40.dp)
             } else {
-                HeadlineText(
-                    text = app.label.uppercase(),
-                    size = titleSize,
+                // Never break a word: multi-word names stack one word per line on small tiles,
+                // single words shrink until they fit.
+                val label = app.label.uppercase()
+                FitHeadlineText(
+                    text = label,
+                    maxSize = titleSize,
+                    minSize = 13.sp,
+                    stacked = ' ' in label && titleSize.value <= 32f,
                     color = content,
-                    maxLines = 2,
-                    modifier = Modifier.weight(1f, fill = false)
+                    modifier = Modifier.weight(1f)
                 )
             }
             if (iconStyle == IconStyle.ICON_TEXT) {

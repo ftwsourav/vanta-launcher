@@ -108,10 +108,17 @@ fun FitHeadlineText(
     val lines = remember(shown) { shown.split('\n') }
     val size = remember(shown, widthPx, maxSize, minSize) {
         var s = maxSize.value
+        // Measure under the real width constraint so the answer matches what Text will draw.
         fun tooWide(sz: Float) = lines.any { line ->
-            measurer.measure(line, StandardType.display(sz.sp), softWrap = false, maxLines = 1).size.width > widthPx
+            measurer.measure(
+                text = line,
+                style = StandardType.display(sz.sp),
+                softWrap = false,
+                maxLines = 1,
+                constraints = androidx.compose.ui.unit.Constraints(maxWidth = widthPx)
+            ).hasVisualOverflow
         }
-        while (widthPx > 0 && s - 4f >= minSize.value && tooWide(s)) s -= 4f
+        while (widthPx > 0 && s > minSize.value && tooWide(s)) s = (s - 2f).coerceAtLeast(minSize.value)
         s.sp
     }
     HeadlineText(

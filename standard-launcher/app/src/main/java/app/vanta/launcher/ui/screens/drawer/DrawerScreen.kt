@@ -743,7 +743,7 @@ private fun NumberedAppRowWithIcon(
             FitHeadlineText(
                 app.label.uppercase(),
                 maxSize = labelSize,
-                minSize = 14.sp,
+                minSize = 11.sp,
                 color = c,
                 modifier = Modifier.weight(1f).padding(end = 12.dp, top = 8.dp, bottom = 8.dp)
             )
