@@ -1,4 +1,4 @@
-﻿package app.vanta.launcher.ui.components
+package app.vanta.launcher.ui.components
 
 import android.content.Context
 import androidx.compose.animation.core.Animatable
@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.wrapContentSize
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -23,7 +22,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onSizeChanged
@@ -63,9 +61,9 @@ fun NotificationPreview(
     LaunchedEffect(timestamp) {
         slide.snapTo(1f)
         alpha.snapTo(1f)
-        slide.animateTo(0f, animationSpec = TileSpring)
+        slide.animateTo(0f, animationSpec = tween(durationMillis = 300, easing = LumiaEasing))
         delay(10_000L)
-        alpha.animateTo(0f, animationSpec = tween(durationMillis = 400, easing = LinearEasing))
+        alpha.animateTo(0f, animationSpec = tween(durationMillis = 200, easing = LumiaEasing))
     }
 
     val ago = remember(timestamp) { timeAgo(timestamp, System.currentTimeMillis()) }
@@ -129,9 +127,8 @@ fun BackgroundActivityIndicator(
     Box(
         modifier = modifier
             .size(6.dp)
-            .clip(CircleShape)
-            .background(colors.accent)
             .graphicsLayer { this.alpha = pulse.value }
+            .background(colors.accent)
     )
 }
 
@@ -226,7 +223,7 @@ private fun TickerItems(notifications: List<Triple<String, String, Long>>) {
     notifications.forEachIndexed { index, (pkg, title, _) ->
         if (index > 0) {
             Text(
-                text = " Â· ",
+                text = " · ",
                 color = colors.accent,
                 fontFamily = JetBrainsMono,
                 fontSize = 10.sp

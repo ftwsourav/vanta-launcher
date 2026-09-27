@@ -1,4 +1,4 @@
-﻿package app.vanta.launcher.ui.components
+package app.vanta.launcher.ui.components
 
 import android.app.NotificationManager
 import android.bluetooth.BluetoothAdapter
@@ -12,17 +12,19 @@ import android.os.BatteryManager
 import android.os.Build
 import android.provider.Settings
 import android.widget.Toast
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -30,8 +32,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -44,6 +45,11 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
@@ -54,7 +60,45 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.vanta.launcher.ui.theme.LocalAppTheme
+import app.vanta.launcher.ui.theme.StandardType
+import app.vanta.launcher.util.RefreshRate
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+
+private const val SheetInMs = 280
+private const val SheetOutMs = 200
+
+/**
+ * WP7 turnstile entrance: hinged on the left edge, swings from 60 degrees to flat while fading in,
+ * staggered by [index]. Re-runs whenever [key] changes; [visible] = false swings it back out.
+ */
+@Composable
+fun Modifier.metroTurnstileIn(
+    index: Int,
+    key: Any? = Unit,
+    visible: Boolean = true,
+    staggerMs: Int = 25,
+    capMs: Int = 300,
+    durationMs: Int = 260
+): Modifier {
+    val p = remember { Animatable(0f) }
+    LaunchedEffect(key, visible) {
+        if (!visible) {
+            p.animateTo(0f, tween(120, easing = LumiaEasing))
+            return@LaunchedEffect
+        }
+        p.snapTo(0f)
+        delay(minOf(index * staggerMs, capMs).toLong())
+        p.animateTo(1f, tween(durationMs, easing = LumiaEasing))
+    }
+    return graphicsLayer {
+        val v = p.value
+        transformOrigin = TransformOrigin(0f, 0.5f)
+        rotationY = 60f * (1f - v)
+        alpha = v
+        cameraDistance = 14f * density
+    }
+}
 
 @Composable
 fun QuickSettingsPanel(
@@ -65,8 +109,13 @@ fun QuickSettingsPanel(
     val context = LocalContext.current
     val colors = LocalAppTheme.current
     val haptics = LocalHapticFeedback.current
+    val hapticsOn = LocalHapticsEnabled.current
     val scope = rememberCoroutineScope()
-    val progress = remember { Animatable(0f) }
+    val sheet = remember { Animatable(0f) }
+    val dim = remember { Animatable(0f) }
+    val drag = remember { Animatable(0f) }
+    var shown by remember { mutableStateOf(false) }
+    var tilesIn by remember { mutableStateOf(false) }
     var panelHeightPx by remember { mutableFloatStateOf(0f) }
     val currentOnDismiss by rememberUpdatedState(onDismiss)
 
@@ -113,6 +162,8 @@ fun QuickSettingsPanel(
 
     LaunchedEffect(visible) {
         if (visible) {
+            shown = true
+            tilesIn = false
             launch {
                 batteryPct = try {
                     batteryManager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY).coerceIn(0, 100)
@@ -123,21 +174,36 @@ fun QuickSettingsPanel(
                     }
                 } catch (e: Exception) { torchId = null }
             }
-            progress.animateTo(1f, spring(dampingRatio = 0.9f, stiffness = 380f))
+            launch { dim.animateTo(1f, tween(200)) }
+            sheet.animateTo(1f, tween(SheetInMs, easing = LumiaEasing))
+            tilesIn = true
         } else {
-            progress.animateTo(0f, spring(dampingRatio = 0.9f, stiffness = 380f))
+            tilesIn = false
+            launch { dim.animateTo(0f, tween(SheetOutMs)) }
+            sheet.animateTo(0f, tween(SheetOutMs, easing = LumiaEasing))
+            drag.snapTo(0f)
+            shown = false
         }
     }
 
-    if (!visible && progress.value <= 0f) return
+    if (!shown) return
+
+    val tick: () -> Unit = {
+        if (hapticsOn) haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+    }
 
     val dismiss: () -> Unit = {
-        haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+        tick()
+        tilesIn = false
         scope.launch {
-            progress.animateTo(0f, tween(180))
+            launch { dim.animateTo(0f, tween(SheetOutMs)) }
+            sheet.animateTo(0f, tween(SheetOutMs, easing = LumiaEasing))
+            drag.snapTo(0f)
             currentOnDismiss()
         }
     }
+
+    val settle: () -> Unit = { scope.launch { drag.animateTo(0f, RefreshRate.springSpec()) } }
 
     val openIntent: (Intent) -> Unit = { intent ->
         try {
@@ -147,8 +213,8 @@ fun QuickSettingsPanel(
         }
     }
 
+    // Tiles use tilePress, which already ticks (gated on LocalHapticsEnabled) on every tap.
     val toggleWifi: () -> Unit = {
-        haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
         try {
             val newState = !wifiOn
             val ok = wifiManager.setWifiEnabled(newState)
@@ -166,7 +232,6 @@ fun QuickSettingsPanel(
     }
 
     val toggleBt: () -> Unit = {
-        haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
         try {
             val adapter = btAdapter
             if (adapter != null) {
@@ -184,7 +249,6 @@ fun QuickSettingsPanel(
     }
 
     val toggleDnd: () -> Unit = {
-        haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
         try {
             val newState = !dndOn
             notifManager.setInterruptionFilter(
@@ -198,7 +262,6 @@ fun QuickSettingsPanel(
     }
 
     val toggleTorch: () -> Unit = {
-        haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
         try {
             val id = torchId
             if (id != null) {
@@ -215,7 +278,6 @@ fun QuickSettingsPanel(
     }
 
     val toggleAutoRotate: () -> Unit = {
-        haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
         try {
             val newState = !autoRotateOn
             val ok = Settings.System.putInt(context.contentResolver, Settings.System.ACCELEROMETER_ROTATION, if (newState) 1 else 0)
@@ -231,7 +293,6 @@ fun QuickSettingsPanel(
     }
 
     val toggleAirplane: () -> Unit = {
-        haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
         try {
             val newState = !airplaneOn
             val ok = Settings.Global.putInt(context.contentResolver, Settings.Global.AIRPLANE_MODE_ON, if (newState) 1 else 0)
@@ -250,7 +311,6 @@ fun QuickSettingsPanel(
     }
 
     val openBattery: () -> Unit = {
-        haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
         try {
             openIntent(Intent(Settings.ACTION_BATTERY_SAVER_SETTINGS))
         } catch (e: Exception) {
@@ -258,15 +318,12 @@ fun QuickSettingsPanel(
         }
     }
 
-    val openSettings: () -> Unit = {
-        haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-        openIntent(Intent(Settings.ACTION_SETTINGS))
-    }
+    val openSettings: () -> Unit = { openIntent(Intent(Settings.ACTION_SETTINGS)) }
 
     val onBrightnessChange: (Float) -> Unit = { value -> brightness = value }
 
     val onBrightnessFinished: () -> Unit = {
-        haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+        tick()
         try {
             Settings.System.putInt(
                 context.contentResolver,
@@ -288,7 +345,7 @@ fun QuickSettingsPanel(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(colors.ink.copy(alpha = 0.45f * progress.value))
+                .drawBehind { drawRect(colors.ink.copy(alpha = 0.45f * dim.value)) }
                 .pointerInput(Unit) { detectTapGestures { dismiss() } }
         )
 
@@ -297,66 +354,62 @@ fun QuickSettingsPanel(
                 .align(Alignment.TopCenter)
                 .fillMaxWidth()
                 .graphicsLayer {
-                    translationY = -panelHeightPx * (1f - progress.value)
-                    alpha = progress.value
+                    val h = panelHeightPx
+                    translationY = -h * (1f - sheet.value) + drag.value
+                    alpha = if (h == 0f) 0f else 1f
                 }
+                .onSizeChanged { panelHeightPx = it.height.toFloat() }
                 .pointerInput(Unit) {
-                    var total = 0f
                     detectVerticalDragGestures(
-                        onVerticalDrag = { _, dragAmount ->
-                            total += dragAmount
-                            if (total < -220f) {
-                                dismiss()
-                                total = Float.POSITIVE_INFINITY
-                            }
-                        }
+                        onVerticalDrag = { change, amount ->
+                            change.consume()
+                            scope.launch { drag.snapTo((drag.value + amount).coerceAtMost(0f)) }
+                        },
+                        onDragEnd = {
+                            if (-drag.value > panelHeightPx * 0.3f) dismiss() else settle()
+                        },
+                        onDragCancel = { settle() }
                     )
                 }
+                .background(colors.background)
+                .windowInsetsPadding(WindowInsets.statusBars)
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(TileDefaults.Gutter)
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(colors.background)
-                    .windowInsetsPadding(WindowInsets.statusBars)
-                    .padding(TileDefaults.Gutter)
-                    .onSizeChanged { panelHeightPx = it.height.toFloat() },
-                verticalArrangement = Arrangement.spacedBy(TileDefaults.Gutter)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    MonoLabel("QUICK SETTINGS //", size = 11.sp, color = colors.ink)
-                    MonoLabel("SWIPE UP TO CLOSE", size = 10.sp, color = colors.ink.copy(alpha = 0.6f))
-                }
+                MonoLabel("QUICK SETTINGS //", size = 11.sp, color = colors.ink)
+                Spacer(Modifier.weight(1f))
+                MonoLabel("SWIPE UP TO CLOSE", size = 10.sp, color = colors.muted)
+            }
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(TileDefaults.Gutter)
-                ) {
-                    QsToggleTile("W", "WI-FI", wifiOn, toggleWifi, Modifier.weight(1f))
-                    QsToggleTile("B", "BLUETOOTH", btOn, toggleBt, Modifier.weight(1f))
-                    QsToggleTile("D", "DND", dndOn, toggleDnd, Modifier.weight(1f))
-                }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(TileDefaults.Gutter)
+            ) {
+                QsToggleTile("W", "WI-FI", wifiOn, toggleWifi, Modifier.weight(1f).metroTurnstileIn(0, visible = tilesIn))
+                QsToggleTile("B", "BLUETOOTH", btOn, toggleBt, Modifier.weight(1f).metroTurnstileIn(1, visible = tilesIn))
+                QsToggleTile("D", "DND", dndOn, toggleDnd, Modifier.weight(1f).metroTurnstileIn(2, visible = tilesIn))
+            }
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(TileDefaults.Gutter)
-                ) {
-                    QsToggleTile("F", "FLASHLIGHT", torchOn, toggleTorch, Modifier.weight(1f))
-                    QsToggleTile("R", "AUTO-ROTATE", autoRotateOn, toggleAutoRotate, Modifier.weight(1f))
-                    QsToggleTile("A", "AIRPLANE", airplaneOn, toggleAirplane, Modifier.weight(1f))
-                }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(TileDefaults.Gutter)
+            ) {
+                QsToggleTile("F", "FLASHLIGHT", torchOn, toggleTorch, Modifier.weight(1f).metroTurnstileIn(3, visible = tilesIn))
+                QsToggleTile("R", "AUTO-ROTATE", autoRotateOn, toggleAutoRotate, Modifier.weight(1f).metroTurnstileIn(4, visible = tilesIn))
+                QsToggleTile("A", "AIRPLANE", airplaneOn, toggleAirplane, Modifier.weight(1f).metroTurnstileIn(5, visible = tilesIn))
+            }
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(TileDefaults.Gutter)
-                ) {
-                    QsBatteryTile(batteryPct, openBattery, Modifier.weight(1f))
-                    QsBrightnessTile(brightness, onBrightnessChange, onBrightnessFinished, Modifier.weight(1f))
-                    QsToggleTile("S", "SETTINGS", true, openSettings, Modifier.weight(1f))
-                }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(TileDefaults.Gutter)
+            ) {
+                QsBatteryTile(batteryPct, openBattery, Modifier.weight(1f).metroTurnstileIn(6, visible = tilesIn))
+                QsBrightnessTile(brightness, onBrightnessChange, onBrightnessFinished, Modifier.weight(1f).metroTurnstileIn(7, visible = tilesIn))
+                QsToggleTile("S", "SETTINGS", true, openSettings, Modifier.weight(1f).metroTurnstileIn(8, visible = tilesIn))
             }
         }
     }
@@ -372,14 +425,15 @@ private fun QsToggleTile(
 ) {
     val colors = LocalAppTheme.current
     val outline = if (colors.filledTiles) colors.outline else colors.ink
-    val borderColor = if (active) colors.accent else outline
-    val textColor = if (active) colors.accent else colors.muted
+    val borderColor by animateColorAsState(if (active) colors.accent else outline, tween(160), label = "qsBorder")
+    val textColor by animateColorAsState(if (active) colors.accent else colors.muted, tween(160), label = "qsText")
     Box(
         modifier = modifier
             .height(104.dp)
+            .tilePress(onTap = onTap)
             .background(colors.tile)
             .border(TileDefaults.Border, borderColor)
-            .pointerInput(Unit) { detectTapGestures { onTap() } }
+            .button(label) { onTap() }
     ) {
         Column(
             modifier = Modifier.fillMaxSize().padding(8.dp),
@@ -403,17 +457,22 @@ private fun QsBatteryTile(
     Box(
         modifier = modifier
             .height(104.dp)
+            .tilePress(onTap = onTap)
             .background(colors.tile)
             .border(TileDefaults.Border, outline)
-            .pointerInput(Unit) { detectTapGestures { onTap() } }
+            .button("BATTERY $percent PERCENT") { onTap() }
     ) {
         Column(
             modifier = Modifier.fillMaxSize().padding(8.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.SpaceEvenly
         ) {
-            HeadlineText("$percent", 28.sp, color = colors.ink)
-            MonoLabel("BATTERY", size = 10.sp, color = colors.ink, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
+            Text(
+                text = "$percent",
+                style = StandardType.display(30.sp).copy(fontFeatureSettings = "tnum"),
+                color = colors.onTile
+            )
+            MonoLabel("BATTERY", size = 10.sp, color = colors.onTile, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
         }
     }
 }
@@ -435,21 +494,78 @@ private fun QsBrightnessTile(
         Column(
             modifier = Modifier.fillMaxSize().padding(8.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.SpaceBetween
+            verticalArrangement = Arrangement.SpaceEvenly
         ) {
-            MonoLabel("BRIGHTNESS", size = 9.sp, color = colors.accent, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
-            Slider(
-                value = brightness,
-                onValueChange = onBrightnessChange,
-                valueRange = 0f..255f,
-                onValueChangeFinished = onBrightnessFinished,
-                modifier = Modifier.fillMaxWidth(),
-                colors = SliderDefaults.colors(
-                    thumbColor = colors.accent,
-                    activeTrackColor = colors.accent,
-                    inactiveTrackColor = colors.ink.copy(alpha = 0.2f)
-                )
+            Text(
+                text = "${(brightness / 255f * 100f).toInt()}",
+                style = StandardType.display(22.sp).copy(fontFeatureSettings = "tnum"),
+                color = colors.accent
             )
+            BrutalSlider(
+                value = brightness / 255f,
+                onChange = { onBrightnessChange(it * 255f) },
+                onFinished = onBrightnessFinished,
+                modifier = Modifier.fillMaxWidth()
+            )
+            MonoLabel("BRIGHTNESS", size = 9.sp, color = colors.accent, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
         }
     }
+}
+
+/** 8dp ink-outlined track, accent fill left of a 14dp square ink knob, drag-follow. [value] is 0..1. */
+@Composable
+private fun BrutalSlider(
+    value: Float,
+    onChange: (Float) -> Unit,
+    onFinished: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val colors = LocalAppTheme.current
+    val currentValue by rememberUpdatedState(value)
+    val currentChange by rememberUpdatedState(onChange)
+    val currentFinished by rememberUpdatedState(onFinished)
+    Box(
+        modifier = modifier
+            .height(14.dp)
+            .pointerInput(Unit) {
+                detectHorizontalDragGestures(
+                    onDragStart = { currentChange((it.x / size.width).coerceIn(0f, 1f)) },
+                    onHorizontalDrag = { change, _ ->
+                        change.consume()
+                        currentChange((change.position.x / size.width).coerceIn(0f, 1f))
+                    },
+                    onDragEnd = { currentFinished() },
+                    onDragCancel = { currentFinished() }
+                )
+            }
+            .pointerInput(Unit) {
+                detectTapGestures {
+                    currentChange((it.x / size.width).coerceIn(0f, 1f))
+                    currentFinished()
+                }
+            }
+            .drawBehind {
+                val knob = 14.dp.toPx()
+                val track = 8.dp.toPx()
+                val stroke = TileDefaults.Border.toPx()
+                val knobX = (size.width - knob) * currentValue
+                val top = (size.height - track) / 2f
+                drawRect(
+                    color = colors.accent,
+                    topLeft = Offset(0f, top),
+                    size = Size(knobX + knob / 2f, track)
+                )
+                drawRect(
+                    color = colors.ink,
+                    topLeft = Offset(stroke / 2f, top + stroke / 2f),
+                    size = Size(size.width - stroke, track - stroke),
+                    style = Stroke(stroke)
+                )
+                drawRect(
+                    color = colors.ink,
+                    topLeft = Offset(knobX, 0f),
+                    size = Size(knob, knob)
+                )
+            }
+    )
 }

@@ -1,4 +1,4 @@
-﻿package app.vanta.launcher.ui.components
+package app.vanta.launcher.ui.components
 
 import android.content.Context
 import android.content.Intent
@@ -14,44 +14,53 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.GridItemSpan
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import kotlinx.coroutines.delay
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.vanta.launcher.domain.model.AppItem
 import app.vanta.launcher.ui.theme.LocalAppTheme
 import app.vanta.launcher.ui.theme.StandardType
+import kotlinx.coroutines.launch
+
+private const val SheetInMs = 260
+private const val SheetOutMs = 200
 
 @Composable
 fun SwipeDownSearch(
@@ -63,6 +72,7 @@ fun SwipeDownSearch(
     val colors = LocalAppTheme.current
     val keyboard = LocalSoftwareKeyboardController.current
     val focus = remember { FocusRequester() }
+    val scope = rememberCoroutineScope()
     var query by remember { mutableStateOf("") }
     val context = LocalContext.current
     val historyPrefs = remember {
@@ -76,27 +86,46 @@ fun SwipeDownSearch(
     val recentApps = remember(apps, historyPackages) {
         historyPackages.mapNotNull { pkg -> apps.firstOrNull { it.packageName == pkg } }.take(6)
     }
-    val appear = remember { Animatable(0f) }
-    LaunchedEffect(Unit) { appear.animateTo(1f, tween(300)) }
-    LaunchedEffect(Unit) {
-        focus.requestFocus()
-        delay(120)
-        keyboard?.show()
-    }
-    BackHandler { onDismiss() }
-
     val results = remember(apps, query) {
         if (query.isBlank()) emptyList()
-        else apps.filter { it.label.contains(query, ignoreCase = true) }.take(12)
+        else apps.filter { it.label.contains(query, ignoreCase = true) }.take(8)
     }
-    val launch: (String) -> Unit = { pkg ->
-        keyboard?.hide()
+    val currentOnDismiss by rememberUpdatedState(onDismiss)
+
+    val sheet = remember { Animatable(0f) }
+    val dim = remember { Animatable(0f) }
+    var sheetHeightPx by remember { mutableFloatStateOf(0f) }
+    var closing by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        launch { dim.animateTo(1f, tween(200)) }
+        sheet.animateTo(1f, tween(SheetInMs, easing = LumiaEasing))
+    }
+    LaunchedEffect(Unit) {
+        focus.requestFocus()
+        keyboard?.show()
+    }
+
+    val dismiss: () -> Unit = {
+        if (!closing) {
+            closing = true
+            keyboard?.hide()
+            scope.launch {
+                launch { dim.animateTo(0f, tween(SheetOutMs)) }
+                sheet.animateTo(0f, tween(SheetOutMs, easing = LumiaEasing))
+                currentOnDismiss()
+            }
+        }
+    }
+    BackHandler { dismiss() }
+
+    val launchApp: (String) -> Unit = { pkg ->
         val updated = (listOf(pkg) + historyPackages.filter { it != pkg }).take(8)
         val joined = updated.joinToString(",")
         historyPrefs.edit().putString("history", joined).apply()
         history = joined
         onLaunch(pkg)
-        onDismiss()
+        dismiss()
     }
     val launchWeb: () -> Unit = {
         val q = query.trim()
@@ -106,7 +135,12 @@ fun SwipeDownSearch(
                 Uri.parse("https://www.google.com/search?q=" + Uri.encode(q))
             ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             try { context.startActivity(intent) } catch (e: Exception) { }
+            dismiss()
         }
+    }
+    val launchTop: () -> Unit = {
+        val top = results.firstOrNull()
+        if (top != null) launchApp(top.packageName) else launchWeb()
     }
     val clearHistory: () -> Unit = {
         historyPrefs.edit().remove("history").apply()
@@ -116,159 +150,190 @@ fun SwipeDownSearch(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .alpha(appear.value)
-            .background(Color.Black.copy(alpha = 0.9f))
-            .pointerInput(Unit) {
-                detectVerticalDragGestures(
-                    onDragStart = { },
-                    onVerticalDrag = { change, amount ->
-                        change.consume()
-                        if (amount < -10f) onDismiss()
-                    }
-                )
-            }
+            .imePadding()
     ) {
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
-                .windowInsetsPadding(WindowInsets.safeDrawing)
+                .drawBehind { drawRect(colors.ink.copy(alpha = 0.5f * dim.value)) }
+                .pointerInput(Unit) { detectTapGestures { dismiss() } }
+        )
+        Column(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .fillMaxWidth()
+                .graphicsLayer {
+                    val h = sheetHeightPx
+                    translationY = -h * (1f - sheet.value)
+                    alpha = if (h == 0f) 0f else 1f
+                }
+                .onSizeChanged { sheetHeightPx = it.height.toFloat() }
+                .pointerInput(Unit) {
+                    var total = 0f
+                    detectVerticalDragGestures(
+                        onDragStart = { total = 0f },
+                        onVerticalDrag = { change, amount ->
+                            change.consume()
+                            total += amount
+                            if (total < -140f) {
+                                dismiss()
+                                total = 0f
+                            }
+                        }
+                    )
+                }
+                .background(colors.background)
+                .windowInsetsPadding(WindowInsets.statusBars)
+                .padding(12.dp)
         ) {
-            Box(
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 16.dp),
-                contentAlignment = Alignment.CenterStart
+                    .height(52.dp)
+                    .background(colors.tile)
+                    .border(TileDefaults.Border, colors.ink)
+                    .padding(horizontal = 14.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                BasicTextField(
-                    value = query,
-                    onValueChange = { query = it },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .focusRequester(focus),
-                    textStyle = StandardType.mono(18.sp, FontWeight.Bold).copy(color = colors.onInk),
-                    cursorBrush = SolidColor(colors.accent),
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                    keyboardActions = KeyboardActions(onDone = { onDismiss() })
-                )
-                if (query.isEmpty()) {
-                    MonoLabel("SEARCH APPS", size = 18.sp, color = colors.onInk.copy(alpha = 0.4f))
+                Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+                    if (query.isEmpty()) {
+                        MonoLabel("SEARCH //", size = 14.sp, color = colors.muted, weight = FontWeight.Bold)
+                    }
+                    BasicTextField(
+                        value = query,
+                        onValueChange = { query = it },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .focusRequester(focus),
+                        textStyle = StandardType.mono(14.sp, FontWeight.Bold).copy(color = colors.onTile),
+                        cursorBrush = SolidColor(colors.ink),
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(
+                            capitalization = KeyboardCapitalization.Characters,
+                            imeAction = ImeAction.Search
+                        ),
+                        keyboardActions = KeyboardActions(onSearch = { launchTop() })
+                    )
+                }
+                if (query.isNotEmpty()) {
+                    Spacer(Modifier.width(10.dp))
+                    MonoLabel(
+                        "CLEAR",
+                        size = 9.sp,
+                        color = colors.accent,
+                        weight = FontWeight.Bold,
+                        modifier = Modifier
+                            .tilePress(onTap = { query = "" }, tilt = false)
+                            .button("CLEAR QUERY") { query = "" }
+                            .padding(4.dp)
+                    )
                 }
             }
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .height(2.dp)
-                    .padding(horizontal = 16.dp)
-                    .background(colors.accent)
-            )
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    .pointerInput(Unit) {
-                        detectTapGestures(
-                            onTap = { onDismiss() }
+            Spacer(Modifier.height(TileDefaults.Gutter))
+            LazyColumn(
+                modifier = Modifier.weight(1f, fill = false),
+                verticalArrangement = Arrangement.spacedBy(TileDefaults.Gutter)
+            ) {
+                if (query.isNotBlank()) {
+                    itemsIndexed(results, key = { _, app -> app.packageName }) { i, app ->
+                        SearchRow(
+                            index = i,
+                            label = app.label,
+                            packageName = app.packageName,
+                            top = i == 0,
+                            onTap = { launchApp(app.packageName) },
+                            modifier = Modifier.metroTurnstileIn(i, key = query, staggerMs = 20, capMs = 240)
                         )
                     }
-            ) {
-                LazyVerticalGrid(
-                    columns = GridCells.Fixed(3),
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(TileDefaults.Gutter),
-                    horizontalArrangement = Arrangement.spacedBy(TileDefaults.Gutter)
-                ) {
-                    if (query.isNotBlank()) {
-                        item(span = { GridItemSpan(maxLineSpan) }) {
-                            Box(
+                    item(key = "web") {
+                        SearchRow(
+                            index = results.size,
+                            label = "“$query” ON WEB",
+                            packageName = null,
+                            top = results.isEmpty(),
+                            onTap = launchWeb,
+                            modifier = Modifier.metroTurnstileIn(results.size, key = query, staggerMs = 20, capMs = 240)
+                        )
+                    }
+                } else if (recentApps.isNotEmpty()) {
+                    item(key = "recent-header") {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            MonoLabel("RECENT //", size = 10.sp, color = colors.muted)
+                            Spacer(Modifier.weight(1f))
+                            MonoLabel(
+                                "CLEAR",
+                                size = 10.sp,
+                                color = colors.accent,
+                                weight = FontWeight.Bold,
                                 modifier = Modifier
-                                    .fillMaxWidth()
-                                    .border(TileDefaults.Border, colors.accent)
-                                    .tilePress(onTap = launchWeb, tilt = false)
-                                    .button("SEARCH $query ON WEB") { launchWeb() }
-                                    .padding(12.dp)
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                                ) {
-                                    MonoLabel("ðŸ”", size = 16.sp, color = colors.accent)
-                                    MonoLabel(
-                                        "SEARCH '$query' ON WEB",
-                                        size = 12.sp,
-                                        color = colors.onInk,
-                                        maxLines = 1
-                                    )
-                                }
-                            }
+                                    .tilePress(onTap = clearHistory, tilt = false)
+                                    .button("CLEAR HISTORY") { clearHistory() }
+                                    .padding(4.dp)
+                            )
                         }
-                        items(results, key = { it.packageName }) { app ->
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .border(TileDefaults.Border, colors.onInk.copy(alpha = 0.5f))
-                                    .tilePress(onTap = { launch(app.packageName) }, tilt = false)
-                                    .button(app.label) { launch(app.packageName) }
-                                    .padding(12.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                AppIcon(packageName = app.packageName, size = 40.dp)
-                                MonoLabel(
-                                    app.label,
-                                    size = 11.sp,
-                                    color = colors.onInk,
-                                    maxLines = 1
-                                )
-                            }
-                        }
-                    } else if (recentApps.isNotEmpty()) {
-                        item(span = { GridItemSpan(maxLineSpan) }) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                MonoLabel(
-                                    "RECENT",
-                                    size = 11.sp,
-                                    color = colors.onInk.copy(alpha = 0.6f)
-                                )
-                                MonoLabel(
-                                    "CLEAR",
-                                    size = 11.sp,
-                                    color = colors.accent,
-                                    modifier = Modifier
-                                        .tilePress(onTap = clearHistory, tilt = false)
-                                        .button("CLEAR HISTORY") { clearHistory() }
-                                        .padding(4.dp)
-                                )
-                            }
-                        }
-                        items(recentApps, key = { it.packageName }) { app ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .border(TileDefaults.Border, colors.onInk.copy(alpha = 0.5f))
-                                    .tilePress(onTap = { launch(app.packageName) }, tilt = false)
-                                    .button(app.label) { launch(app.packageName) }
-                                    .padding(12.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(12.dp)
-                            ) {
-                                AppIcon(packageName = app.packageName, size = 32.dp)
-                                MonoLabel(
-                                    app.label,
-                                    size = 13.sp,
-                                    color = colors.onInk,
-                                    maxLines = 1
-                                )
-                            }
-                        }
+                    }
+                    itemsIndexed(recentApps, key = { _, app -> app.packageName }) { i, app ->
+                        SearchRow(
+                            index = i,
+                            label = app.label,
+                            packageName = app.packageName,
+                            top = false,
+                            onTap = { launchApp(app.packageName) },
+                            modifier = Modifier.metroTurnstileIn(i, key = "recent", staggerMs = 20, capMs = 240)
+                        )
                     }
                 }
             }
+        }
+    }
+}
+
+/** 52dp outline tile row: index, icon, headline label; the top result is outlined in accent and marked for Enter. */
+@Composable
+private fun SearchRow(
+    index: Int,
+    label: String,
+    packageName: String?,
+    top: Boolean,
+    onTap: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val colors = LocalAppTheme.current
+    val outline = when {
+        top -> colors.accent
+        colors.filledTiles -> colors.outline
+        else -> colors.ink
+    }
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(52.dp)
+            .tilePress(onTap = onTap, tilt = false)
+            .background(colors.tile)
+            .border(TileDefaults.Border, outline)
+            .button(label) { onTap() }
+            .padding(horizontal = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        MonoLabel("%02d".format(index + 1), size = 9.sp, color = colors.onTile.copy(alpha = 0.7f))
+        Spacer(Modifier.width(10.dp))
+        if (packageName != null) {
+            AppIcon(packageName = packageName, size = 26.dp)
+            Spacer(Modifier.width(10.dp))
+        }
+        HeadlineText(
+            label.uppercase(),
+            18.sp,
+            color = colors.onTile,
+            maxLines = 1,
+            modifier = Modifier.weight(1f)
+        )
+        if (top) {
+            Spacer(Modifier.width(8.dp))
+            MonoLabel("↵", size = 14.sp, color = colors.accent, weight = FontWeight.Bold)
         }
     }
 }

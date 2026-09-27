@@ -6,13 +6,15 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Process
+import android.os.SystemClock
 import android.provider.Settings
-import android.widget.Toast
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -57,7 +59,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -69,12 +70,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
@@ -87,10 +93,14 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.TextUnit
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
 import app.vanta.launcher.R
 import app.vanta.launcher.domain.model.AppItem
 import app.vanta.launcher.ui.components.AppBarAction
@@ -98,9 +108,11 @@ import app.vanta.launcher.ui.components.AppIcon
 import app.vanta.launcher.ui.components.BarcodeTile
 import app.vanta.launcher.ui.components.CalloutTile
 import app.vanta.launcher.ui.components.DateTile
+import app.vanta.launcher.ui.components.FitHeadlineText
 import app.vanta.launcher.ui.components.HeadlineText
 import app.vanta.launcher.ui.components.LocalHapticsEnabled
 import app.vanta.launcher.ui.components.LocalTileColors
+import app.vanta.launcher.ui.components.LumiaEasing
 import app.vanta.launcher.ui.components.MonoLabel
 import app.vanta.launcher.ui.components.QuoteTile
 import app.vanta.launcher.ui.components.SectionLabel
@@ -111,6 +123,7 @@ import app.vanta.launcher.ui.components.TileDefaults
 import app.vanta.launcher.ui.components.TileStyle
 import app.vanta.launcher.ui.components.WeatherTile
 import app.vanta.launcher.ui.components.WpAppBar
+import app.vanta.launcher.ui.components.WpGlyph
 import app.vanta.launcher.ui.components.tilePress
 import app.vanta.launcher.ui.nav.StandardAppViewModel
 import app.vanta.launcher.ui.theme.LocalAppTheme
@@ -187,12 +200,9 @@ fun DrawerScreen(viewModel: StandardAppViewModel, onOpenSettings: () -> Unit) {
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var sortMode by rememberSaveable { mutableStateOf("alpha") }
     val listState = rememberLazyListState()
-    var zoomTarget by remember { mutableFloatStateOf(0f) }
-    val zoomProgress by animateFloatAsState(
-        targetValue = zoomTarget,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow),
-        label = "semanticZoom"
-    )
+    var zoomOpen by remember { mutableStateOf(false) }
+    // Rows turnstile in on first show and again whenever search or sort rebuilds the list.
+    val listEpoch = remember(searchQuery, sortMode) { SystemClock.uptimeMillis() }
     var pinNotice by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(pinNotice) {
         if (pinNotice != null) {
@@ -312,13 +322,13 @@ fun DrawerScreen(viewModel: StandardAppViewModel, onOpenSettings: () -> Unit) {
                         zoom *= event.calculateZoom()
                         event.changes.forEach { it.consume() }
                         if (fired) continue
-                        val target = when {
-                            zoom < 0.8f -> 1f
-                            zoom > 1.25f -> 0f
+                        val open = when {
+                            zoom < 0.8f -> true
+                            zoom > 1.25f -> false
                             else -> continue
                         }
                         fired = true
-                        zoomTarget = target
+                        zoomOpen = open
                         if (hapticsOn) haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                     }
                 }
@@ -337,20 +347,31 @@ fun DrawerScreen(viewModel: StandardAppViewModel, onOpenSettings: () -> Unit) {
                 letterIndex.entries.lastOrNull { it.value <= first }?.key
             }
         }
-        val jumpTo: (String) -> Unit = { letter ->
+        val jumpTo: (String, Boolean) -> Unit = { letter, animate ->
             letterIndex[letter]?.let { index ->
                 scope.launch {
-                    if (gridColumns >= 2) gridState.scrollToItem(index) else listState.scrollToItem(index)
+                    when {
+                        gridColumns >= 2 && animate -> gridState.animateScrollToItem(index)
+                        gridColumns >= 2 -> gridState.scrollToItem(index)
+                        animate -> listState.animateScrollToItem(index)
+                        else -> listState.scrollToItem(index)
+                    }
                 }
             }
+        }
+        val firstVisible: () -> Int = {
+            if (gridColumns >= 2) gridState.firstVisibleItemIndex else listState.firstVisibleItemIndex
+        }
+        val launchFirstResult: () -> Unit = {
+            entries.firstNotNullOfOrNull { (it as? Entry.App)?.app }?.let(launch)
         }
         Column(modifier = Modifier.fillMaxSize()) {
             SearchField(
                 query = searchQuery,
                 onQueryChange = { searchQuery = it },
+                onSearch = launchFirstResult,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top))
                     .padding(horizontal = PagePadding, vertical = 4.dp)
             )
             if (gridColumns >= 2) {
@@ -414,39 +435,22 @@ fun DrawerScreen(viewModel: StandardAppViewModel, onOpenSettings: () -> Unit) {
                             )
                         }
                     }
-                    entries.forEach { entry ->
+                    entries.forEachIndexed { i, entry ->
                         when (entry) {
                             is Entry.Letter -> item(key = entry.key, contentType = Entry.Letter::class, span = { GridItemSpan(maxLineSpan) }) {
-                                HeadlineText(
-                                    entry.letter,
-                                    28.sp,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .background(colors.background.copy(alpha = 0.92f))
-                                        .padding(start = PagePadding, top = 12.dp, bottom = 2.dp)
+                                LetterHeader(
+                                    letter = entry.letter,
+                                    onTap = { zoomOpen = true },
+                                    modifier = Modifier.turnstileIn(prefix + i, listEpoch, firstVisible)
                                 )
                             }
                             is Entry.App -> item(key = entry.key, contentType = Entry.App::class) {
-                                NumberedAppRowWithIcon(
-                                    index = entry.number,
-                                    app = entry.app,
-                                    onLaunch = { launch(entry.app) },
-                                    onLongPress = { togglePin(entry.app) },
-                                    pinned = entry.app.pinned,
-                                    menuActions = listOf(
-                                        AppRowMenuAction(if (entry.app.pinned) "UNPIN FROM HOME" else "PIN TO HOME") { togglePin(entry.app) },
-                                        AppRowMenuAction("HIDE APP") { hideApp(entry.app) },
-                                        AppRowMenuAction("APP INFO") {
-                                            val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                                                data = Uri.parse("package:${entry.app.packageName}")
-                                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                            }
-                                            try { context.startActivity(intent) } catch (_: Exception) {}
-                                        }
-                                    ),
-                                    modifier = Modifier
-                                        .padding(horizontal = PagePadding)
-                                        .appRowSemantics(entry.app, launch, togglePin)
+                                AppEntryRow(
+                                    entry = entry,
+                                    onLaunch = launch,
+                                    onTogglePin = togglePin,
+                                    onHide = hideApp,
+                                    modifier = Modifier.turnstileIn(prefix + i, listEpoch, firstVisible)
                                 )
                             }
                         }
@@ -520,39 +524,22 @@ fun DrawerScreen(viewModel: StandardAppViewModel, onOpenSettings: () -> Unit) {
                             )
                         }
                     }
-                    entries.forEach { entry ->
+                    entries.forEachIndexed { i, entry ->
                         when (entry) {
                             is Entry.Letter -> item(key = entry.key, contentType = Entry.Letter::class) {
-                                HeadlineText(
-                                    entry.letter,
-                                    28.sp,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .background(colors.background.copy(alpha = 0.92f))
-                                        .padding(start = PagePadding, top = 12.dp, bottom = 2.dp)
+                                LetterHeader(
+                                    letter = entry.letter,
+                                    onTap = { zoomOpen = true },
+                                    modifier = Modifier.turnstileIn(prefix + i, listEpoch, firstVisible)
                                 )
                             }
                             is Entry.App -> item(key = entry.key, contentType = Entry.App::class) {
-                                NumberedAppRowWithIcon(
-                                    index = entry.number,
-                                    app = entry.app,
-                                    onLaunch = { launch(entry.app) },
-                                    onLongPress = { togglePin(entry.app) },
-                                    pinned = entry.app.pinned,
-                                    menuActions = listOf(
-                                        AppRowMenuAction(if (entry.app.pinned) "UNPIN FROM HOME" else "PIN TO HOME") { togglePin(entry.app) },
-                                        AppRowMenuAction("HIDE APP") { hideApp(entry.app) },
-                                        AppRowMenuAction("APP INFO") {
-                                            val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                                                data = Uri.parse("package:${entry.app.packageName}")
-                                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                            }
-                                            try { context.startActivity(intent) } catch (_: Exception) {}
-                                        }
-                                    ),
-                                    modifier = Modifier
-                                        .padding(horizontal = PagePadding)
-                                        .appRowSemantics(entry.app, launch, togglePin)
+                                AppEntryRow(
+                                    entry = entry,
+                                    onLaunch = launch,
+                                    onTogglePin = togglePin,
+                                    onHide = hideApp,
+                                    modifier = Modifier.turnstileIn(prefix + i, listEpoch, firstVisible)
                                 )
                             }
                         }
@@ -572,22 +559,23 @@ fun DrawerScreen(viewModel: StandardAppViewModel, onOpenSettings: () -> Unit) {
 
         WpAppBar(
             actions = listOf(
-                AppBarAction("Sort", ">", {
+                AppBarAction("SORT", WpGlyph.Sort) {
                     sortMode = if (sortMode == "alpha") "mostUsed" else "alpha"
-                    Toast.makeText(context, "SORTED", Toast.LENGTH_SHORT).show()
-                }),
-                AppBarAction("Refresh", ">", {
+                    pinNotice = if (sortMode == "alpha") "SORTED A-Z" else "SORTED BY USE"
+                },
+                AppBarAction("REFRESH", WpGlyph.Refresh) {
                     viewModel.refreshWeather()
-                    Toast.makeText(context, "REFRESHED", Toast.LENGTH_SHORT).show()
-                }),
-                AppBarAction("Settings", ">", { onOpenSettings() })
+                    pinNotice = "REFRESHING WEATHER"
+                },
+                AppBarAction("SETTINGS", WpGlyph.Settings) { onOpenSettings() }
             ),
-            menuItems = listOf("PIN TO HOME", "RESET LAYOUT", "APP INFO"),
+            menuItems = listOf("SCROLL TO TOP", "LETTER GRID"),
             onMenuItemClick = { item ->
                 when (item) {
-                    "PIN TO HOME" -> Toast.makeText(context, "PIN TO HOME", Toast.LENGTH_SHORT).show()
-                    "RESET LAYOUT" -> Toast.makeText(context, "RESET LAYOUT", Toast.LENGTH_SHORT).show()
-                    "APP INFO" -> Toast.makeText(context, "APP INFO", Toast.LENGTH_SHORT).show()
+                    "SCROLL TO TOP" -> scope.launch {
+                        if (gridColumns >= 2) gridState.animateScrollToItem(0) else listState.animateScrollToItem(0)
+                    }
+                    "LETTER GRID" -> zoomOpen = true
                 }
             },
             modifier = Modifier
@@ -598,7 +586,8 @@ fun DrawerScreen(viewModel: StandardAppViewModel, onOpenSettings: () -> Unit) {
         AlphabetScrubber(
             letters = letters,
             current = currentLetter,
-            onLetter = jumpTo,
+            onLetter = { jumpTo(it, false) },
+            onCurrentTap = { zoomOpen = true },
             scrolling = if (gridColumns >= 2) gridState.isScrollInProgress else listState.isScrollInProgress,
             modifier = Modifier.align(Alignment.CenterEnd)
         )
@@ -607,7 +596,6 @@ fun DrawerScreen(viewModel: StandardAppViewModel, onOpenSettings: () -> Unit) {
             Tile(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
-                    .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top))
                     .padding(top = 8.dp),
                 style = TileStyle.Ink,
                 contentPadding = 10.dp
@@ -616,18 +604,96 @@ fun DrawerScreen(viewModel: StandardAppViewModel, onOpenSettings: () -> Unit) {
             }
         }
 
-        if (zoomProgress > 0.01f) {
-            SemanticZoomGrid(
-                letters = letters,
-                onLetterSelected = { letter ->
-                    zoomTarget = 0f
-                    jumpTo(letter)
-                },
-                onDismiss = { zoomTarget = 0f },
-                zoomProgress = zoomProgress
-            )
+        SemanticZoomGrid(
+            visible = zoomOpen,
+            available = letterIndex.keys,
+            onLetterSelected = { letter ->
+                zoomOpen = false
+                jumpTo(letter, true)
+            },
+            onDismiss = { zoomOpen = false }
+        )
+    }
+}
+
+/**
+ * Lumia list entrance: each row swings in around its left edge, staggered 25ms by its distance
+ * from the first visible row (cap 300ms). Re-runs when [epoch] changes; rows composed later by
+ * scrolling snap straight in so the list never flickers mid-scroll.
+ */
+@Composable
+private fun Modifier.turnstileIn(index: Int, epoch: Long, firstVisible: () -> Int): Modifier {
+    val enter = remember { Animatable(if (SystemClock.uptimeMillis() - epoch > 600L) 1f else 0f) }
+    LaunchedEffect(epoch) {
+        if (SystemClock.uptimeMillis() - epoch > 600L) {
+            enter.snapTo(1f)
+            return@LaunchedEffect
+        }
+        enter.snapTo(0f)
+        delay(((index - firstVisible()).coerceAtLeast(0) * 25L).coerceAtMost(300L))
+        enter.animateTo(1f, tween(320, easing = LumiaEasing))
+    }
+    return graphicsLayer {
+        val p = enter.value
+        if (p < 1f) {
+            transformOrigin = TransformOrigin(0f, 0.5f)
+            rotationY = 60f * (1f - p)
+            alpha = p
+            cameraDistance = 14f * density
         }
     }
+}
+
+/** Letter section header; tapping it opens the semantic zoom grid, like Windows Phone. */
+@Composable
+private fun LetterHeader(letter: String, onTap: () -> Unit, modifier: Modifier = Modifier) {
+    val colors = LocalAppTheme.current
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(colors.background.copy(alpha = 0.92f))
+            .tilePress(onTap = onTap, tilt = false)
+            .semantics(mergeDescendants = true) {
+                role = Role.Button
+                onClick(label = "Show letters") { onTap(); true }
+            }
+            .padding(start = PagePadding, top = 12.dp, bottom = 2.dp)
+    ) {
+        HeadlineText(letter, 28.sp)
+    }
+}
+
+@Composable
+private fun AppEntryRow(
+    entry: Entry.App,
+    onLaunch: (AppItem) -> Unit,
+    onTogglePin: (AppItem) -> Unit,
+    onHide: (AppItem) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val app = entry.app
+    NumberedAppRowWithIcon(
+        index = entry.number,
+        app = app,
+        onLaunch = { onLaunch(app) },
+        onLongPress = { onTogglePin(app) },
+        pinned = app.pinned,
+        menuActions = listOf(
+            AppRowMenuAction(if (app.pinned) "UNPIN FROM HOME" else "PIN TO HOME") { onTogglePin(app) },
+            AppRowMenuAction("HIDE APP") { onHide(app) },
+            AppRowMenuAction("APP INFO") {
+                val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                    data = Uri.parse("package:${app.packageName}")
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                try { context.startActivity(intent) } catch (_: Exception) {}
+            }
+        ),
+        modifier = modifier
+            .padding(horizontal = PagePadding)
+            .appRowSemantics(app, onLaunch, onTogglePin)
+    )
 }
 
 /** TalkBack: name the row, and expose Open / Pin-Unpin as actions since the press is gesture-driven. */
@@ -666,39 +732,72 @@ private fun NumberedAppRowWithIcon(
         }
     ) {
         val c = LocalTileColors.current.content
-        Box(modifier = Modifier.fillMaxWidth()) {
-            Row(
-                modifier = Modifier.fillMaxWidth().heightIn(min = minHeight).height(IntrinsicSize.Min),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                MonoLabel("%02d".format(index), size = 11.sp, color = c, modifier = Modifier.padding(horizontal = 12.dp))
-                AppIcon(packageName = app.packageName, size = 32.dp)
-                Spacer(Modifier.width(12.dp))
-                HeadlineText(
-                    app.label.uppercase(),
-                    labelSize,
-                    color = c,
-                    maxLines = 1,
-                    modifier = Modifier.weight(1f).padding(horizontal = 12.dp, vertical = 12.dp)
-                )
-                if (pinned) {
-                    Box(Modifier.size(8.dp).background(colors.accent))
-                    Spacer(Modifier.width(10.dp))
-                }
-                MonoLabel(">", size = 18.sp, color = c, weight = FontWeight.Bold, modifier = Modifier.padding(end = 14.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth().heightIn(min = minHeight),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            MonoLabel("%02d".format(index), size = 11.sp, color = c, modifier = Modifier.padding(horizontal = 12.dp))
+            AppIcon(packageName = app.packageName, size = 32.dp)
+            Spacer(Modifier.width(12.dp))
+            // Shrinks to fit its slot so a label never ellipsizes to "YOU...".
+            FitHeadlineText(
+                app.label.uppercase(),
+                maxSize = labelSize,
+                minSize = 14.sp,
+                color = c,
+                modifier = Modifier.weight(1f).padding(end = 12.dp, top = 8.dp, bottom = 8.dp)
+            )
+            if (pinned) {
+                Box(Modifier.size(8.dp).background(colors.accent))
+                Spacer(Modifier.width(10.dp))
             }
-            DropdownMenu(
-                expanded = menuExpanded,
-                onDismissRequest = { menuExpanded = false }
-            ) {
-                menuActions.forEach { action ->
-                    DropdownMenuItem(
-                        text = { MonoLabel(action.label, size = 12.sp, color = colors.ink) },
-                        onClick = {
-                            menuExpanded = false
-                            action.onClick()
-                        }
-                    )
+            MonoLabel("→", size = 18.sp, color = c, weight = FontWeight.Bold, modifier = Modifier.padding(end = 14.dp))
+        }
+        if (menuExpanded) RowMenu(menuActions, onDismiss = { menuExpanded = false })
+    }
+}
+
+/** Long-press menu for an app row: an outline tile of mono actions that scales in beside the row. */
+@Composable
+private fun RowMenu(actions: List<AppRowMenuAction>, onDismiss: () -> Unit) {
+    val progress = remember { Animatable(0f) }
+    LaunchedEffect(Unit) { progress.animateTo(1f, tween(180, easing = LumiaEasing)) }
+    val offsetPx = with(LocalDensity.current) { 44.dp.roundToPx() }
+    Popup(
+        offset = IntOffset(offsetPx, offsetPx),
+        onDismissRequest = onDismiss,
+        properties = PopupProperties(focusable = true)
+    ) {
+        Tile(
+            modifier = Modifier
+                .width(220.dp)
+                .graphicsLayer {
+                    val p = progress.value
+                    transformOrigin = TransformOrigin(0f, 0f)
+                    scaleX = 0.92f + 0.08f * p
+                    scaleY = 0.92f + 0.08f * p
+                    alpha = p
+                },
+            style = TileStyle.Outline,
+            contentPadding = 0.dp
+        ) {
+            val c = LocalTileColors.current.content
+            Column {
+                actions.forEach { action ->
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 44.dp)
+                            .tilePress(onTap = { onDismiss(); action.onClick() }, tilt = false)
+                            .semantics {
+                                role = Role.Button
+                                onClick { onDismiss(); action.onClick(); true }
+                            }
+                            .padding(horizontal = 14.dp),
+                        contentAlignment = Alignment.CenterStart
+                    ) {
+                        MonoLabel(action.label, size = 12.sp, color = c)
+                    }
                 }
             }
         }
@@ -716,14 +815,14 @@ private fun RecentlyUsedRow(
     Column(modifier = modifier.fillMaxWidth()) {
         SectionLabel("RECENTLY USED", modifier = Modifier.padding(bottom = 6.dp))
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
             horizontalArrangement = Arrangement.spacedBy(Gutter)
         ) {
             apps.forEach { app ->
                 Tile(
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.weight(1f).fillMaxHeight(),
                     style = TileStyle.Outline,
-                    contentPadding = 8.dp,
+                    contentPadding = 6.dp,
                     onClick = { onLaunch(app) },
                     onLongClick = { onTogglePin(app) }
                 ) {
@@ -733,7 +832,8 @@ private fun RecentlyUsedRow(
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         AppIcon(packageName = app.packageName, size = 32.dp)
-                        HeadlineText(app.label.uppercase(), 11.sp, color = c, maxLines = 1)
+                        // ponytail: 4-across tiles are ~70dp wide, so the fit range is 14-9sp with a 2-line fallback.
+                        FitHeadlineText(app.label.uppercase(), maxSize = 14.sp, minSize = 9.sp, color = c, maxLines = 2, textAlign = TextAlign.Center)
                     }
                 }
             }
@@ -752,14 +852,14 @@ private fun MostUsedRow(
     Column(modifier = modifier.fillMaxWidth()) {
         SectionLabel("MOST USED", modifier = Modifier.padding(bottom = 6.dp))
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
             horizontalArrangement = Arrangement.spacedBy(Gutter)
         ) {
             apps.forEach { item ->
                 Tile(
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.weight(1f).fillMaxHeight(),
                     style = TileStyle.Outline,
-                    contentPadding = 8.dp,
+                    contentPadding = 6.dp,
                     onClick = { onLaunch(item.app) },
                     onLongClick = { onTogglePin(item.app) }
                 ) {
@@ -769,7 +869,7 @@ private fun MostUsedRow(
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         AppIcon(packageName = item.app.packageName, size = 32.dp)
-                        HeadlineText(item.app.label.uppercase(), 11.sp, color = c, maxLines = 1)
+                        FitHeadlineText(item.app.label.uppercase(), maxSize = 14.sp, minSize = 9.sp, color = c, maxLines = 2, textAlign = TextAlign.Center)
                         MonoLabel(item.timeText, size = 8.sp, color = c, maxLines = 1)
                     }
                 }
@@ -803,8 +903,8 @@ private fun TopSection(
         horizontalArrangement = Arrangement.spacedBy(Gutter)
     ) {
         Column(modifier = Modifier.weight(1f)) {
-            // ponytail: 50sp is the largest size at which BETTER fits a 188dp column in Space Grotesk.
-            HeadlineText(stringResource(R.string.tagline), 50.sp, stacked = true)
+            // One word per line; shrinks until BETTER fits the column so a word never breaks.
+            FitHeadlineText("GOOD APPS BETTER DAYS.", maxSize = 64.sp, stacked = true)
             SectionLabel(
                 "UTILITIES / CREATIVITY / LIFE",
                 modifier = Modifier.padding(top = 10.dp, bottom = 12.dp),
@@ -850,7 +950,7 @@ private fun TopSection(
             // ponytail: quote and date stack instead of sitting side by side; at half of a 188dp
             // column DateTile's "SEP 2026" and any 11-letter word in the quote ellipsize.
             QuoteTile(quote, modifier = Modifier.fillMaxWidth().height(110.dp), size = 10.sp)
-            DateTile(modifier = Modifier.fillMaxWidth().height(120.dp), daySize = 44.sp)
+            DateTile(modifier = Modifier.fillMaxWidth().height(150.dp), daySize = 44.sp)
             QuickToolsTile(quickTools, onLaunch, modifier = Modifier.fillMaxWidth().weight(1f))
         }
     }
@@ -894,7 +994,7 @@ private fun QuickToolsTile(tools: List<AppItem>, onLaunch: (AppItem) -> Unit, mo
                                 verticalArrangement = Arrangement.Center
                             ) {
                                 if (app != null) {
-                                    HeadlineText(app.label.uppercase(), 16.sp, color = c, maxLines = 1)
+                                    FitHeadlineText(app.label.uppercase(), maxSize = 16.sp, minSize = 11.sp, color = c)
                                     MonoLabel(
                                         app.caption ?: TileCaptions.defaultFor(app.packageName, app.label),
                                         size = 9.sp,
@@ -911,22 +1011,52 @@ private fun QuickToolsTile(tools: List<AppItem>, onLaunch: (AppItem) -> Unit, mo
     }
 }
 
-/** Square 2dp-bordered search box: mono text, "SEARCH //" placeholder, text o. to clear. */
+/**
+ * Square 2dp search box: mono text, "SEARCH" placeholder, a "//" caret marker that turns accent
+ * with the border on focus, and an x square to clear. IME Search opens the first result.
+ */
 @Composable
-private fun SearchField(query: String, onQueryChange: (String) -> Unit, modifier: Modifier = Modifier) {
+private fun SearchField(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    onSearch: () -> Unit,
+    modifier: Modifier = Modifier
+) {
     val colors = LocalAppTheme.current
     val focus = LocalFocusManager.current
+    var focused by remember { mutableStateOf(false) }
+    val outlineColor by animateColorAsState(
+        targetValue = if (focused) colors.accent else colors.ink,
+        animationSpec = tween(180, easing = LumiaEasing),
+        label = "searchOutline"
+    )
+    val markerColor by animateColorAsState(
+        targetValue = if (focused) colors.accent else colors.muted,
+        animationSpec = tween(180, easing = LumiaEasing),
+        label = "searchMarker"
+    )
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .border(TileDefaults.Border, colors.ink)
+            .drawBehind {
+                val w = TileDefaults.Border.toPx()
+                drawRect(
+                    color = outlineColor,
+                    topLeft = Offset(w / 2f, w / 2f),
+                    size = Size(size.width - w, size.height - w),
+                    style = Stroke(w)
+                )
+            }
             .padding(start = 14.dp, end = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         BasicTextField(
             value = query,
             onValueChange = onQueryChange,
-            modifier = Modifier.weight(1f).padding(vertical = 14.dp),
+            modifier = Modifier
+                .weight(1f)
+                .padding(vertical = 14.dp)
+                .onFocusChanged { focused = it.isFocused },
             singleLine = true,
             textStyle = StandardType.mono(13.sp).copy(color = colors.ink),
             cursorBrush = SolidColor(colors.accent),
@@ -934,30 +1064,36 @@ private fun SearchField(query: String, onQueryChange: (String) -> Unit, modifier
                 capitalization = KeyboardCapitalization.Characters,
                 imeAction = ImeAction.Search
             ),
-            keyboardActions = KeyboardActions(onSearch = { focus.clearFocus() }),
+            keyboardActions = KeyboardActions(onSearch = {
+                focus.clearFocus()
+                onSearch()
+            }),
             decorationBox = { inner ->
                 Box {
-                    if (query.isEmpty()) MonoLabel("SEARCH //", size = 13.sp, color = colors.muted)
+                    if (query.isEmpty()) MonoLabel("SEARCH", size = 13.sp, color = colors.muted)
                     inner()
                 }
             }
         )
-        if (query.isNotEmpty()) {
+        MonoLabel("//", size = 13.sp, color = markerColor, weight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 10.dp))
+        AnimatedVisibility(
+            visible = query.isNotEmpty(),
+            enter = fadeIn(tween(180, easing = LumiaEasing)) + scaleIn(tween(180, easing = LumiaEasing), initialScale = 0.8f),
+            exit = fadeOut(tween(120, easing = LumiaEasing))
+        ) {
             Box(
                 modifier = Modifier
                     .size(44.dp)
-                    .clickable(
-                        indication = null,
-                        interactionSource = remember { MutableInteractionSource() },
-                        onClickLabel = "Clear search",
+                    .tilePress(onTap = { onQueryChange(""); focus.clearFocus() }, tilt = false)
+                    .semantics {
                         role = Role.Button
-                    ) {
-                        onQueryChange("")
-                        focus.clearFocus()
+                        onClick(label = "Clear search") { onQueryChange(""); true }
                     },
                 contentAlignment = Alignment.Center
             ) {
-                MonoLabel(">", size = 14.sp, color = colors.ink, weight = FontWeight.Bold)
+                Box(Modifier.size(28.dp).border(TileDefaults.Border, colors.ink), contentAlignment = Alignment.Center) {
+                    MonoLabel("×", size = 14.sp, color = colors.ink, weight = FontWeight.Bold)
+                }
             }
         }
     }
@@ -982,12 +1118,12 @@ private fun SettingsRow(onOpenSettings: () -> Unit, modifier: Modifier = Modifie
             verticalAlignment = Alignment.CenterVertically
         ) {
             MonoLabel("SETTINGS", size = 12.sp, color = c)
-            MonoLabel(">", size = 16.sp, color = c, weight = FontWeight.Bold)
+            MonoLabel("→", size = 16.sp, color = c, weight = FontWeight.Bold)
         }
     }
 }
 
-/** Ink asterisk tile beside the outlined mantra + barcode tile. */
+/** Outline arrow tile beside the outlined mantra + barcode tile. */
 @Composable
 private fun Footer(modifier: Modifier = Modifier) {
     val colors = LocalAppTheme.current
@@ -995,9 +1131,9 @@ private fun Footer(modifier: Modifier = Modifier) {
         modifier = modifier.fillMaxWidth().height(140.dp),
         horizontalArrangement = Arrangement.spacedBy(Gutter)
     ) {
-        Tile(modifier = Modifier.weight(1f).fillMaxHeight(), style = TileStyle.Ink) {
+        Tile(modifier = Modifier.weight(1f).fillMaxHeight(), style = TileStyle.Outline) {
             Row(modifier = Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
-                HeadlineText(">", 48.sp, color = colors.accent)
+                MonoLabel("→", size = 36.sp, color = colors.accent, weight = FontWeight.Bold)
                 Spacer(Modifier.width(12.dp))
                 MonoLabel("SAME\nPHONE.\nHIGHER\nSTANDARDS.", size = 11.sp, color = LocalTileColors.current.content)
             }
@@ -1020,6 +1156,7 @@ private fun AlphabetScrubber(
     current: String?,
     onLetter: (String) -> Unit,
     modifier: Modifier = Modifier,
+    onCurrentTap: () -> Unit = {},
     scrolling: Boolean = false
 ) {
     if (letters.isEmpty()) return
@@ -1079,8 +1216,12 @@ private fun AlphabetScrubber(
                         indication = null,
                         interactionSource = remember { MutableInteractionSource() },
                         role = Role.Button
-                    ) { if (shown) onLetter(letter) }
-                    .semantics { contentDescription = "Jump to $letter" },
+                    ) {
+                        if (!shown) return@clickable
+                        if (hapticsOn) haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        if (letter == current) onCurrentTap() else onLetter(letter)
+                    }
+                    .semantics { contentDescription = if (letter == current) "$letter, show letters" else "Jump to $letter" },
                 contentAlignment = Alignment.Center
             ) {
                 MonoLabel(

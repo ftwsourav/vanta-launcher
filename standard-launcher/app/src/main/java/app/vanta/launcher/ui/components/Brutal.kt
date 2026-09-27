@@ -1,4 +1,4 @@
-﻿package app.vanta.launcher.ui.components
+package app.vanta.launcher.ui.components
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -18,6 +18,13 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -76,6 +83,49 @@ fun HeadlineText(
             )
         }
     }
+}
+
+/**
+ * Display headline that steps its size down (4sp at a time, never below [minSize]) until every line
+ * fits the available width, so words never break mid-word. Stacked text is measured line by line.
+ * Draws nothing on the first frame (width unknown) instead of flashing at the wrong size.
+ */
+@Composable
+fun FitHeadlineText(
+    text: String,
+    maxSize: TextUnit,
+    modifier: Modifier = Modifier,
+    color: Color = LocalAppTheme.current.ink,
+    minSize: TextUnit = 18.sp,
+    stacked: Boolean = false,
+    maxLines: Int = if (stacked) Int.MAX_VALUE else 1,
+    boost: Float = 0.045f,
+    textAlign: TextAlign? = null
+) {
+    val measurer = rememberTextMeasurer()
+    var widthPx by remember { mutableIntStateOf(0) }
+    val shown = if (stacked) text.trim().replace(Regex("\\s+"), "\n") else text
+    val lines = remember(shown) { shown.split('\n') }
+    val size = remember(shown, widthPx, maxSize, minSize) {
+        var s = maxSize.value
+        fun tooWide(sz: Float) = lines.any { line ->
+            measurer.measure(line, StandardType.display(sz.sp), softWrap = false, maxLines = 1).size.width > widthPx
+        }
+        while (widthPx > 0 && s - 4f >= minSize.value && tooWide(s)) s -= 4f
+        s.sp
+    }
+    HeadlineText(
+        text = shown,
+        size = size,
+        color = color,
+        maxLines = maxLines,
+        boost = boost,
+        textAlign = textAlign,
+        modifier = modifier
+            .fillMaxWidth()
+            .onSizeChanged { widthPx = it.width }
+            .alpha(if (widthPx == 0) 0f else 1f)
+    )
 }
 
 /** Uppercase JetBrains Mono meta label. */
@@ -165,8 +215,8 @@ fun QuoteTile(
     Tile(modifier = modifier, style = style, onClick = onClick) {
         val c = LocalTileColors.current.content
         Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.SpaceBetween) {
-            MonoLabel("â€œ" + quote + "â€", size = size, color = c)
-            MonoLabel("â€”", size = size, color = c)
+            MonoLabel("“" + quote + "”", size = size, color = c)
+            MonoLabel("—", size = size, color = c)
         }
     }
 }
@@ -221,7 +271,7 @@ fun BarcodeTile(
             Column(modifier = Modifier.fillMaxHeight(), verticalArrangement = Arrangement.Center) {
                 mantra.forEach { MonoLabel(it, size = 12.sp, color = c) }
                 Spacer(Modifier.height(6.dp))
-                MonoLabel("â€”", size = 12.sp, color = c)
+                MonoLabel("—", size = 12.sp, color = c)
             }
             Column(
                 modifier = Modifier.fillMaxHeight().width(100.dp),
@@ -251,8 +301,8 @@ fun PlusTile(label: String, modifier: Modifier = Modifier, glyph: String = "+", 
 enum class RowVariant { Arrow, Caption }
 
 /**
- * Numbered app row from the mockups. Arrow variant: "01  WHATSAPP  â†’".
- * Caption variant: "01 â”‚ WHATSAPP â”‚ CHAT / CALL" with ink dividers.
+ * Numbered app row from the mockups. Arrow variant: "01  WHATSAPP  →".
+ * Caption variant: "01 │ WHATSAPP │ CHAT / CALL" with ink dividers.
  */
 @Composable
 fun NumberedAppRow(
@@ -303,7 +353,7 @@ fun NumberedAppRow(
                     Box(Modifier.size(8.dp).background(colors.accent))
                     Spacer(Modifier.width(10.dp))
                 }
-                MonoLabel("â†’", size = 18.sp, color = c, weight = FontWeight.Bold, modifier = Modifier.padding(end = 14.dp))
+                MonoLabel("→", size = 18.sp, color = c, weight = FontWeight.Bold, modifier = Modifier.padding(end = 14.dp))
             }
         }
     }

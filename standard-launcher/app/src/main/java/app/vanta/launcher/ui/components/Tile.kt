@@ -20,6 +20,8 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.Easing
+import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -44,6 +46,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -60,6 +63,7 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
@@ -67,6 +71,9 @@ import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.contentDescription
@@ -95,6 +102,17 @@ import kotlin.math.absoluteValue
 
 /** Outline = paper tile with an ink border; Ink = solid ink block; Accent = the one red tile. */
 enum class TileStyle { Outline, Ink, Accent }
+
+/**
+ * One-shot origin of the tile that was just tapped, so the app window can reveal out of it
+ * (WP tile-to-app). Set by [AppTile] right before it launches, consumed by the app repository.
+ * ponytail: process-global hand-off; thread it through launch() if a second launcher path appears.
+ */
+object LaunchOrigin {
+    @Volatile private var pending: Pair<android.view.View, android.graphics.Rect>? = null
+    fun set(view: android.view.View, rect: android.graphics.Rect) { pending = view to rect }
+    fun consume(): Pair<android.view.View, android.graphics.Rect>? = pending.also { pending = null }
+}
 
 @Immutable
 data class TileColors(val fill: Color, val content: Color, val outline: Color)
@@ -312,6 +330,14 @@ fun AppTile(
     }
     val longHandler: (() -> Unit)? = if (editMode) onLongPress else { { menuExpanded = true } }
 
+    // Where this tile sits in the window, handed to the launch so the app reveals out of the tile.
+    val rootView = LocalView.current
+    var bounds by remember { mutableStateOf<android.graphics.Rect?>(null) }
+    val launchFromTile: () -> Unit = {
+        bounds?.let { LaunchOrigin.set(rootView, it) }
+        onTap()
+    }
+
     val front: @Composable () -> Unit = {
         AppTileFace(app, iconStyle, captionText, titleSize, trailing)
     }
@@ -333,16 +359,16 @@ fun AppTile(
             editMode -> onCycleSize()
             animationStyle == AnimationStyle.TAP_FLIP -> scope.launch {
                 flip.animateTo(90f, RefreshRate.Snappy)
-                onTap()
+                launchFromTile()
                 flip.animateTo(180f, RefreshRate.springSpec())
                 delay(120)
                 flip.snapTo(0f)
             }
             else -> scope.launch {
-                turnstileRotation.animateTo(90f, spring(dampingRatio = 0.7f, stiffness = 800f))
-                onTap()
-                delay(100)
-                turnstileRotation.snapTo(0f)
+                turnstileRotation.animateTo(70f, tween(160, easing = TurnstileOutEasing))
+                launchFromTile()
+                delay(220)
+                turnstileRotation.animateTo(0f, tween(240, easing = TurnstileInEasing))
             }
         }
     }
@@ -362,6 +388,10 @@ fun AppTile(
 
     Box(
         modifier = modifier
+            .onGloballyPositioned { c ->
+                val pos = c.positionInWindow()
+                bounds = android.graphics.Rect(pos.x.toInt(), pos.y.toInt(), (pos.x + c.size.width).toInt(), (pos.y + c.size.height).toInt())
+            }
             .editJiggle(editMode)
             .tilePress(onTap = tap, onLongPress = longHandler, tilt = !editMode)
             .graphicsLayer {
@@ -369,8 +399,12 @@ fun AppTile(
                 cameraDistance = 16f * density
             }
             .graphicsLayer {
-                rotationY = turnstileRotation.value
-                scaleX = 1f + turnstileRotation.value / 180f * 0.2f
+                // Launch: the tile swings away around its left edge (WP turnstile out).
+                val t = turnstileRotation.value
+                transformOrigin = TransformOrigin(0f, 0.5f)
+                rotationY = -t
+                alpha = 1f - (t / 90f) * 0.6f
+                cameraDistance = 14f * density
             }
             .resizeCorner(editMode, colors.accent)
             .semantics(mergeDescendants = true) {
@@ -389,14 +423,14 @@ fun AppTile(
             val frames: List<@Composable () -> Unit> = if (liveStrings != null) {
                 liveStrings.map { text ->
                     @Composable {
-                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Text(
+                        Box(modifier = Modifier.fillMaxSize()) {
+                            FitHeadlineText(
                                 text = text,
-                                style = StandardType.headline((titleSize.value * 1.5f).sp),
+                                maxSize = (titleSize.value * 1.6f).sp,
+                                minSize = 14.sp,
+                                stacked = text.length > 12 && ' ' in text,
                                 color = LocalTileColors.current.content,
-                                textAlign = TextAlign.Center,
-                                maxLines = 3,
-                                overflow = TextOverflow.Ellipsis
+                                modifier = Modifier.align(Alignment.BottomStart)
                             )
                         }
                     }
@@ -405,14 +439,15 @@ fun AppTile(
                 listOf(
                     front,
                     {
-                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Text(
+                        // Metro "name" frame: the label as big as the tile allows, never broken mid-word.
+                        Box(modifier = Modifier.fillMaxSize()) {
+                            Box(Modifier.align(Alignment.TopEnd).size(8.dp).background(colors.accent))
+                            FitHeadlineText(
                                 text = app.label.uppercase(),
-                                style = StandardType.headline((titleSize.value * 1.5f).sp),
-                                color = colors.accent,
-                                textAlign = TextAlign.Center,
-                                maxLines = 3,
-                                overflow = TextOverflow.Ellipsis
+                                maxSize = (titleSize.value * 1.6f).sp,
+                                minSize = 14.sp,
+                                color = LocalTileColors.current.content,
+                                modifier = Modifier.align(Alignment.BottomStart)
                             )
                         }
                     },
@@ -441,19 +476,17 @@ fun AppTile(
             Box(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .size(16.dp)
-                    .background(colors.accent, CircleShape)
+                    .size(18.dp)
+                    .background(colors.accent)
                     .semantics { invisibleToUser() },
                 contentAlignment = Alignment.Center
             ) {
-                if (notifCount <= 9) {
-                    Text(
-                        text = notifCount.toString(),
-                        style = StandardType.mono(9.sp),
-                        color = colors.onAccent,
-                        textAlign = TextAlign.Center
-                    )
-                }
+                Text(
+                    text = if (notifCount <= 9) notifCount.toString() else "9+",
+                    style = StandardType.mono(9.sp, FontWeight.Bold),
+                    color = colors.onAccent,
+                    textAlign = TextAlign.Center
+                )
             }
         }
 
@@ -717,26 +750,45 @@ fun LiveTile(
     }
 }
 
-/** Staggered fade + rise on first composition. */
+/** Bumped by the app shell every time the launcher comes back to the foreground; tiles turnstile in again. */
+val LocalEntranceTick = staticCompositionLocalOf { 0 }
+
+/** WP turnstile-out: fast at first, settles as the tile leaves. */
+val TurnstileOutEasing: Easing = CubicBezierEasing(0.4f, 0f, 0.9f, 0.5f)
+/** WP turnstile-in: the Lumia curve, quick arrival with a long soft settle. */
+val TurnstileInEasing: Easing = CubicBezierEasing(0.16f, 1f, 0.3f, 1f)
+
+private const val EntranceStaggerMs = 32L
+private const val EntranceCapMs = 320L
+
+/**
+ * Windows Phone turnstile entrance: each tile swings in around the screen's left edge, staggered
+ * by [index], on first composition and again whenever [LocalEntranceTick] changes (the launcher
+ * coming back to the foreground). The transform is read in the draw phase only.
+ */
 @Composable
 fun TileEntrance(
     index: Int,
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit
 ) {
-    val alpha = remember { Animatable(0f) }
-    val translation = remember { Animatable(24f) }
-    LaunchedEffect(Unit) {
-        delay(index * 40L)
-        kotlinx.coroutines.coroutineScope {
-            launch { alpha.animateTo(1f, RefreshRate.springSpec()) }
-            launch { translation.animateTo(0f, RefreshRate.springSpec()) }
-        }
+    val tick = LocalEntranceTick.current
+    val progress = remember { Animatable(0f) }
+    LaunchedEffect(tick) {
+        progress.snapTo(0f)
+        delay((index * EntranceStaggerMs).coerceAtMost(EntranceCapMs))
+        progress.animateTo(1f, tween(durationMillis = 420, easing = TurnstileInEasing))
     }
     Box(
         modifier = modifier.graphicsLayer {
-            this.alpha = alpha.value
-            this.translationY = translation.value
+            val p = progress.value
+            if (p < 1f) {
+                transformOrigin = TransformOrigin(0f, 0.5f)
+                rotationY = 55f * (1f - p)
+                translationX = size.width * 0.12f * (1f - p)
+                alpha = p
+                cameraDistance = 14f * density
+            }
         }
     ) {
         content()

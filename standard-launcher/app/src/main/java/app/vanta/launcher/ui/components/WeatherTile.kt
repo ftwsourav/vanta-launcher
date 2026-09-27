@@ -1,4 +1,4 @@
-﻿package app.vanta.launcher.ui.components
+package app.vanta.launcher.ui.components
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.Canvas
@@ -188,7 +188,7 @@ fun WeatherTile(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 HeadlineText(
-                    text = weather?.let { unit.display(it.tempC) } ?: "â€”",
+                    text = weather?.let { unit.display(it.tempC) } ?: "—",
                     size = if (compact) 44.sp else 64.sp,
                     color = c
                 )

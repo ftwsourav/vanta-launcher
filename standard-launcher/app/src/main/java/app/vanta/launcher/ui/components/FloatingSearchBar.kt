@@ -1,4 +1,4 @@
-﻿package app.vanta.launcher.ui.components
+package app.vanta.launcher.ui.components
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
@@ -43,7 +43,7 @@ import app.vanta.launcher.ui.theme.StandardType
 
 /**
  * Outlined paper search tile. Tap the row to expand (keyboard opens), type to filter [apps],
- * tap a result to launch it, long-press to pin/unpin. Back or the âœ• collapses it.
+ * tap a result to launch it, long-press to pin/unpin. Back or the ✕ collapses it.
  */
 @Composable
 fun FloatingSearchBar(
@@ -106,7 +106,7 @@ fun FloatingSearchBar(
                             .semantics { role = Role.Button; contentDescription = "Close search" },
                         contentAlignment = Alignment.Center
                     ) {
-                        MonoLabel("âœ•", size = 16.sp, color = c, weight = FontWeight.Bold)
+                        MonoLabel("✕", size = 16.sp, color = c, weight = FontWeight.Bold)
                     }
                 } else {
                     MonoLabel("SEARCH //", size = 14.sp, color = c, weight = FontWeight.Bold)

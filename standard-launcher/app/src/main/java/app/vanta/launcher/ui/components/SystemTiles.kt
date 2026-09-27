@@ -9,13 +9,14 @@ import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -37,7 +38,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -48,10 +48,11 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
@@ -62,6 +63,7 @@ import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -78,6 +80,17 @@ fun Modifier.button(label: String, action: (() -> Unit)? = null) = semantics(mer
     role = Role.Button
     contentDescription = label
     if (action != null) onClick(action = { action(); true })
+}
+
+/** Drawn cross for "+" buttons: two [stroke] bars, no font glyph (the CJK ＋ renders full-width). */
+@Composable
+fun PlusCross(color: Color, modifier: Modifier = Modifier, size: Dp = 18.dp, stroke: Dp = 2.dp) {
+    Canvas(modifier = modifier.size(size)) {
+        val w = stroke.toPx()
+        val full = this.size
+        drawRect(color, topLeft = Offset((full.width - w) / 2f, 0f), size = Size(w, full.height))
+        drawRect(color, topLeft = Offset(0f, (full.height - w) / 2f), size = Size(full.width, w))
+    }
 }
 
 private fun android.content.Context.open(intent: Intent) {
@@ -404,7 +417,6 @@ fun QuickSettingsFab(modifier: Modifier = Modifier, onToggleNight: () -> Unit = 
     var expanded by rememberSaveable { mutableStateOf(false) }
     val context = LocalContext.current
     val colors = LocalAppTheme.current
-    val rotation by animateFloatAsState(if (expanded) 45f else 0f, label = "fabRotation")
     BackHandler(enabled = expanded) { expanded = false }
 
     Box(modifier = modifier) {
@@ -446,17 +458,18 @@ fun QuickSettingsFab(modifier: Modifier = Modifier, onToggleNight: () -> Unit = 
                     }
                 }
             }
+            // 48dp accent square, Metro style; the glyph crossfades between // and ✕.
             Box(
                 modifier = Modifier
-                    .size(56.dp)
-                    .clip(CircleShape)
+                    .size(48.dp)
                     .background(colors.accent)
                     .tilePress(onTap = { expanded = !expanded }, tilt = false)
-                    .button(if (expanded) "Close quick settings" else "Quick settings") { expanded = !expanded }
-                    .graphicsLayer { rotationZ = rotation },
+                    .button(if (expanded) "Close quick settings" else "Quick settings") { expanded = !expanded },
                 contentAlignment = Alignment.Center
             ) {
-                HeadlineText("+", 32.sp, color = colors.onAccent)
+                Crossfade(targetState = expanded, animationSpec = tween(150, easing = LumiaEasing), label = "fabGlyph") { open ->
+                    MonoLabel(if (open) "✕" else "//", size = 16.sp, color = colors.onAccent, weight = FontWeight.Bold)
+                }
             }
         }
     }

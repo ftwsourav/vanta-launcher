@@ -1,4 +1,4 @@
-﻿package app.vanta.launcher.ui.components
+package app.vanta.launcher.ui.components
 
 import android.graphics.Bitmap
 import androidx.compose.animation.Crossfade
@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
@@ -34,31 +35,36 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.vanta.launcher.ui.theme.LocalAppTheme
 import app.vanta.launcher.util.RefreshRate
 import kotlinx.coroutines.delay
 
+/**
+ * Cycles [frames] with a single 180° flip: the next frame rides on the (mirrored) back face, and the
+ * rotation snaps to 0 the moment it lands so the hand-off is invisible. One soft spring, no bounce.
+ */
 @Composable
 fun LiveTile(
     modifier: Modifier = Modifier,
     frames: List<@Composable () -> Unit>,
-    intervalMs: Long = 5000L,
+    intervalMs: Long = 6000L,
     flipEnabled: Boolean = true
 ) {
     if (frames.isEmpty()) return
     val rotation = remember { Animatable(0f) }
     var frameIndex by remember { mutableIntStateOf(0) }
+    val showBack by remember { derivedStateOf { rotation.value > 90f } }
 
     LaunchedEffect(frames.size, intervalMs, flipEnabled) {
         if (frames.size <= 1) return@LaunchedEffect
         while (true) {
             delay(intervalMs)
             if (flipEnabled) {
-                rotation.animateTo(90f, RefreshRate.Snappy)
+                rotation.animateTo(180f, RefreshRate.springSpec())
                 frameIndex = (frameIndex + 1) % frames.size
-                rotation.animateTo(360f, RefreshRate.springSpec())
                 rotation.snapTo(0f)
             } else {
                 frameIndex = (frameIndex + 1) % frames.size
@@ -73,23 +79,22 @@ fun LiveTile(
                 cameraDistance = 16f * density
             }
         ) {
-            val r = rotation.value
-            val idx = frameIndex % frames.size
-            if (r > 90f && r < 270f) {
+            val front = frameIndex % frames.size
+            if (showBack) {
                 Box(Modifier.fillMaxSize().graphicsLayer { rotationY = 180f }) {
                     Tile(modifier = Modifier.fillMaxSize(), style = TileStyle.Outline) {
-                        frames[idx]()
+                        frames[(front + 1) % frames.size]()
                     }
                 }
             } else {
                 Tile(modifier = Modifier.fillMaxSize(), style = TileStyle.Outline) {
-                    frames[idx]()
+                    frames[front]()
                 }
             }
         }
     } else {
         Tile(modifier = modifier, style = TileStyle.Outline) {
-            Crossfade(targetState = frameIndex, animationSpec = tween(500)) { idx ->
+            Crossfade(targetState = frameIndex, animationSpec = tween(300, easing = LumiaEasing), label = "liveFrame") { idx ->
                 frames[idx % frames.size]()
             }
         }
@@ -121,7 +126,7 @@ fun MusicLiveTile(
                 }
                 Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.SpaceBetween) {
                     MonoLabel("NOW PLAYING //", size = 11.sp, color = titleColor)
-                    HeadlineText((title ?: "â€”").uppercase(), 26.sp, color = titleColor, maxLines = 2)
+                    FitHeadlineText((title ?: "—").uppercase(), 26.sp, color = titleColor, minSize = 16.sp)
                 }
             }
         },
@@ -134,12 +139,12 @@ fun MusicLiveTile(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.Bottom
                 ) {
-                    HeadlineText(
+                    FitHeadlineText(
                         (artist ?: "UNKNOWN").uppercase(),
                         22.sp,
                         color = c,
-                        maxLines = 2,
-                        modifier = Modifier.weight(1f, fill = false)
+                        minSize = 14.sp,
+                        modifier = Modifier.weight(1f)
                     )
                     Spacer(Modifier.width(8.dp))
                     MonoLabel(
@@ -159,7 +164,7 @@ fun MusicLiveTile(
             }
         }
     )
-    LiveTile(modifier = modifier, frames = frames, intervalMs = 4000L)
+    LiveTile(modifier = modifier, frames = frames, intervalMs = 6000L)
 }
 
 @Composable
@@ -176,7 +181,7 @@ fun WeatherLiveTile(
             val c = LocalTileColors.current.content
             Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.SpaceBetween) {
                 MonoLabel("WEATHER //", size = 11.sp, color = c.copy(alpha = 0.85f))
-                HeadlineText("$tempC\u00B0", 56.sp, color = c)
+                FitHeadlineText("$tempC\u00B0", 56.sp, color = c)
                 MonoLabel(condition.uppercase(), size = 12.sp, color = c, maxLines = 1)
             }
         },
@@ -184,7 +189,7 @@ fun WeatherLiveTile(
             val c = LocalTileColors.current.content
             Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.SpaceBetween) {
                 MonoLabel("CITY //", size = 11.sp, color = c.copy(alpha = 0.85f))
-                HeadlineText(city.uppercase(), 28.sp, color = c, maxLines = 1)
+                FitHeadlineText(city.uppercase(), 28.sp, color = c)
                 MonoLabel("H: ${highC}\u00B0  L: ${lowC}\u00B0", size = 12.sp, color = c)
             }
         },
@@ -200,11 +205,12 @@ fun WeatherLiveTile(
                     modifier = Modifier.size(56.dp),
                     color = c
                 )
-                HeadlineText("$tempC\u00B0", 40.sp, color = c)
+                Spacer(Modifier.width(8.dp))
+                FitHeadlineText("$tempC\u00B0", 40.sp, color = c, modifier = Modifier.weight(1f), textAlign = TextAlign.End)
             }
         }
     )
-    LiveTile(modifier = modifier, frames = frames, intervalMs = 5000L)
+    LiveTile(modifier = modifier, frames = frames, intervalMs = 6000L)
 }
 
 @Composable
@@ -219,7 +225,7 @@ fun BatteryLiveTile(
             val c = LocalTileColors.current.content
             Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.SpaceBetween) {
                 MonoLabel(if (isCharging) "CHARGING //" else "BATTERY //", size = 11.sp, color = c)
-                HeadlineText("$percent%", 48.sp, color = c)
+                FitHeadlineText("$percent%", 48.sp, color = c)
             }
         },
         {
@@ -252,7 +258,7 @@ fun BatteryLiveTile(
             }
         }
     )
-    LiveTile(modifier = modifier, frames = frames, intervalMs = 4000L)
+    LiveTile(modifier = modifier, frames = frames, intervalMs = 8000L)
 }
 
 private fun conditionToKind(condition: String): WeatherKind = when {

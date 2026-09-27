@@ -1,17 +1,23 @@
-﻿package app.vanta.launcher.ui.components
+package app.vanta.launcher.ui.components
 
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.provider.CalendarContract
-import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -28,6 +34,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.vanta.launcher.ui.theme.LocalAppTheme
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.text.SimpleDateFormat
@@ -171,7 +178,7 @@ private fun readNextEvent(context: Context): String? {
                 val status = cursor.getInt(3)
                 if (status == CalendarContract.Events.STATUS_CANCELED || allDay) continue
                 val time = SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date(start))
-                result = "NEXT: $title Â· $time"
+                result = "NEXT: $title · $time"
             }
             result
         }
@@ -202,51 +209,70 @@ fun CalendarNextEvent(modifier: Modifier = Modifier) {
     )
 }
 
+/** EXPORT / IMPORT outline buttons; the result is a mono status line that fades in and hides after 3s. */
 @Composable
 fun BackupRestoreButtons(modifier: Modifier = Modifier) {
     val context = LocalContext.current
+    val theme = LocalAppTheme.current
     val manager = remember { BackupManager(context) }
+    var status by remember { mutableStateOf<String?>(null) }
+    val shownStatus = remember { arrayOfNulls<String>(1) }
+    if (status != null) shownStatus[0] = status
+    LaunchedEffect(status) {
+        if (status != null) {
+            delay(3000)
+            status = null
+        }
+    }
     val exportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/json")
     ) { uri ->
-        if (uri != null) {
-            val ok = manager.saveToFile(uri, context)
-            Toast.makeText(context, if (ok) "EXPORTED" else "EXPORT FAILED", Toast.LENGTH_SHORT).show()
-        }
+        if (uri != null) status = if (manager.saveToFile(uri, context)) "EXPORTED" else "EXPORT FAILED"
     }
     val importLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri ->
-        if (uri != null) {
-            val ok = manager.loadFromFile(uri, context)
-            Toast.makeText(context, if (ok) "IMPORTED" else "IMPORT FAILED", Toast.LENGTH_SHORT).show()
-        }
+        if (uri != null) status = if (manager.loadFromFile(uri, context)) "IMPORTED" else "IMPORT FAILED"
     }
-    Row(modifier = modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(TileDefaults.Gutter)) {
-        BackupButton("EXPORT", Modifier.weight(1f)) { exportLauncher.launch("standard_backup.json") }
-        BackupButton("IMPORT", Modifier.weight(1f)) { importLauncher.launch(arrayOf("application/json")) }
+    Column(modifier = modifier.fillMaxWidth()) {
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(TileDefaults.Gutter)) {
+            BackupButton("EXPORT", Modifier.weight(1f)) { exportLauncher.launch("vanta_backup.json") }
+            BackupButton("IMPORT", Modifier.weight(1f)) { importLauncher.launch(arrayOf("application/json")) }
+        }
+        AnimatedVisibility(
+            visible = status != null,
+            enter = fadeIn(tween(160, easing = LumiaEasing)),
+            exit = fadeOut(tween(180, easing = LumiaEasing))
+        ) {
+            val text = shownStatus[0] ?: ""
+            MonoLabel(
+                text = text,
+                size = 10.sp,
+                weight = FontWeight.Bold,
+                color = if (text.endsWith("FAILED")) theme.accent else theme.ink,
+                modifier = Modifier.padding(top = 8.dp)
+            )
+        }
     }
 }
 
 @Composable
 private fun BackupButton(label: String, modifier: Modifier, onClick: () -> Unit) {
-    Tile(
-        modifier = modifier.button(label, onClick),
-        contentPadding = 0.dp,
-        onClick = onClick
+    val colors = LocalAppTheme.current
+    Box(
+        modifier = modifier
+            .heightIn(min = 44.dp)
+            .tilePress(onTap = onClick, tilt = false)
+            .border(2.dp, colors.ink)
+            .button(label, onClick),
+        contentAlignment = Alignment.Center
     ) {
-        val c = LocalTileColors.current.content
-        Box(
-            modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            MonoLabel(
-                text = label,
-                size = 11.sp,
-                color = c,
-                weight = FontWeight.Bold,
-                textAlign = TextAlign.Center
-            )
-        }
+        MonoLabel(
+            text = label,
+            size = 11.sp,
+            color = colors.ink,
+            weight = FontWeight.Bold,
+            textAlign = TextAlign.Center
+        )
     }
 }

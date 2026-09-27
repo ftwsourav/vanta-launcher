@@ -1,19 +1,15 @@
-﻿package app.vanta.launcher.ui.screens.home
+package app.vanta.launcher.ui.screens.home
 
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
 import android.widget.Toast
 import androidx.compose.animation.Crossfade
-import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -59,18 +55,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.rememberTextMeasurer
-import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.vanta.launcher.domain.model.AnimationStyle
@@ -79,16 +71,13 @@ import app.vanta.launcher.domain.model.HomeModule
 import app.vanta.launcher.domain.model.IconStyle
 import app.vanta.launcher.domain.model.SettingsState
 import app.vanta.launcher.domain.model.TileSize
-import app.vanta.launcher.ui.components.AppIcon
 import app.vanta.launcher.ui.components.AppTile
 import app.vanta.launcher.ui.components.BatteryTile
+import app.vanta.launcher.ui.components.FitHeadlineText
 import app.vanta.launcher.ui.components.FloatingSearchBar
 import app.vanta.launcher.ui.components.HeadlineText
 import app.vanta.launcher.ui.components.LiveTile
 import app.vanta.launcher.ui.components.LocalHapticsEnabled
-import app.vanta.launcher.ui.components.NotificationBadge
-import app.vanta.launcher.ui.components.TileGroup
-import app.vanta.launcher.ui.components.TileGroupHeader
 import app.vanta.launcher.ui.components.LocalTileColors
 import app.vanta.launcher.ui.components.MusicWidget
 import app.vanta.launcher.ui.components.NotesWidget
@@ -96,10 +85,9 @@ import app.vanta.launcher.ui.components.TaskItem
 import app.vanta.launcher.ui.components.TaskStore
 import app.vanta.launcher.ui.components.TasksWidget
 import app.vanta.launcher.ui.components.MonoLabel
-import app.vanta.launcher.ui.components.ParallaxBackground
 import app.vanta.launcher.ui.components.PeopleHubTile
+import app.vanta.launcher.ui.components.PlusCross
 import app.vanta.launcher.ui.components.QuickSettingsFab
-import app.vanta.launcher.ui.components.SlideableHome
 import app.vanta.launcher.ui.components.SwipeDownSearch
 import app.vanta.launcher.ui.components.Tile
 import app.vanta.launcher.ui.components.TileDefaults
@@ -111,10 +99,8 @@ import app.vanta.launcher.ui.components.tilePress
 import app.vanta.launcher.ui.nav.StandardAppViewModel
 import app.vanta.launcher.ui.theme.LocalAppTheme
 import app.vanta.launcher.ui.theme.StandardType
-import app.vanta.launcher.ui.theme.SpaceGrotesk
-import app.vanta.launcher.ui.theme.JetBrainsMono
+import app.vanta.launcher.util.RefreshRate
 import app.vanta.launcher.domain.model.MediaInfo
-import androidx.compose.ui.text.TextStyle
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -216,30 +202,29 @@ fun HomeScreen(
                 if (change.position.y < 50f && amount > 5f) showSwipeSearch = true
             })
         }) {
-        ParallaxBackground(
-            scrollState = scrollState,
-            modifier = Modifier.fillMaxSize(),
-            parallaxFactor = 0.5f
-        )
-        SlideableHome(modifier = Modifier.fillMaxSize()) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .windowInsetsPadding(WindowInsets.safeDrawing)
-                    .pointerInput(hapticsOn) { detectTapGestures(onLongPress = { enterEdit() }) }
-                    .verticalScroll(scrollState)
-                    .padding(12.dp),
-                verticalArrangement = Arrangement.spacedBy(TileDefaults.Gutter)
-            ) {
-                if (editMode) EditBar(onDone = { viewModel.setEditMode(false) })
-                if (editMode) QuickOptions(settings = settings, pinned = pinned, viewModel = viewModel)
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .pointerInput(hapticsOn) { detectTapGestures(onLongPress = { enterEdit() }) }
+                .verticalScroll(scrollState)
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(TileDefaults.Gutter)
+        ) {
+            if (editMode) EditBar(onDone = { viewModel.setEditMode(false) })
+            if (editMode) QuickOptions(settings = settings, pinned = pinned, viewModel = viewModel)
 
-                if (HomeModule.SEARCH in modules) {
+            // Every top-level block turnstiles in with a continuous stagger index.
+            var entrance = 0
+
+            if (HomeModule.SEARCH in modules) {
+                TileEntrance(index = entrance++) {
                     Box(modifier = Modifier.alpha(contentAlpha)) {
                         FloatingSearchBar(apps = allApps, onLaunch = launch, onPin = { viewModel.togglePin(it) })
                     }
                 }
+            }
 
+            TileEntrance(index = entrance++) {
                 Row(
                     modifier = Modifier.fillMaxWidth().alpha(contentAlpha).heightIn(min = 190.dp).height(IntrinsicSize.Min),
                     horizontalArrangement = Arrangement.spacedBy(TileDefaults.Gutter)
@@ -255,13 +240,17 @@ fun HomeScreen(
                         onSetLocation = onOpenSettings
                     )
                 }
+            }
 
+            TileEntrance(index = entrance++) {
                 HomeNowClock(
                     nowPlaying = nowPlaying,
                     modifier = Modifier.fillMaxWidth().alpha(contentAlpha)
                 )
+            }
 
-                if (pinned.isEmpty()) {
+            if (pinned.isEmpty()) {
+                TileEntrance(index = entrance++) {
                     Tile(
                         modifier = Modifier.fillMaxWidth().height(RowHeight * fontScale).button("Pin apps in drawer", onOpenDrawer),
                         onClick = onOpenDrawer
@@ -269,44 +258,55 @@ fun HomeScreen(
                         val c = LocalTileColors.current.content
                         Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.SpaceBetween) {
                             HeadlineText("PIN APPS", 32.sp, color = c)
-                            MonoLabel("IN DRAWER â†’", size = 10.sp, color = c)
+                            MonoLabel("IN DRAWER →", size = 10.sp, color = c)
                         }
                     }
-                } else {
-                    PinnedGrid(
-                        pinned = pinned,
-                        settings = settings,
-                        editMode = editMode,
-                        fontScale = fontScale,
-                        viewModel = viewModel,
-                        launch = launch,
-                        enterEdit = enterEdit,
-                        contextMenuTile = contextMenuTile,
-                        onContextMenuTile = { contextMenuTile = it }
-                    )
                 }
+            } else {
+                val rows = remember(pinned) { packRows(pinned) }
+                PinnedGrid(
+                    rows = rows,
+                    firstIndex = entrance,
+                    pinned = pinned,
+                    settings = settings,
+                    editMode = editMode,
+                    fontScale = fontScale,
+                    viewModel = viewModel,
+                    launch = launch,
+                    enterEdit = enterEdit,
+                    contextMenuTile = contextMenuTile,
+                    onContextMenuTile = { contextMenuTile = it }
+                )
+                entrance += rows.size
+            }
 
-                val taskStore = remember { app.vanta.launcher.ui.components.TaskStore(context) }
-                var tasks by remember { mutableStateOf(taskStore.load()) }
+            val taskStore = remember { TaskStore(context) }
+            var tasks by remember { mutableStateOf(taskStore.load()) }
+            TileEntrance(index = entrance++) {
                 TasksWidget(
                     tasks = tasks,
                     onToggle = { id -> tasks = tasks.map { if (it.id == id) it.copy(completed = !it.completed) else it }; taskStore.save(tasks) },
-                    onAdd = { text -> tasks = tasks + app.vanta.launcher.ui.components.TaskItem(tasks.size, text, false); taskStore.save(tasks) },
+                    // ids must be unique for the keyed list: next = max + 1, not size (size repeats after a removal).
+                    onAdd = { text -> tasks = tasks + TaskItem((tasks.maxOfOrNull { it.id } ?: -1) + 1, text, false); taskStore.save(tasks) },
                     onRemove = { id -> tasks = tasks.filterNot { it.id == id }; taskStore.save(tasks) },
                     modifier = Modifier.fillMaxWidth().alpha(contentAlpha)
                 )
+            }
 
-                val notesPrefs = remember { context.getSharedPreferences("standard_notes", android.content.Context.MODE_PRIVATE) }
-                var notes by remember { mutableStateOf(notesPrefs.getString("notes", "")?.split("\n")?.filter { it.isNotBlank() } ?: emptyList()) }
+            val notesPrefs = remember { context.getSharedPreferences("standard_notes", android.content.Context.MODE_PRIVATE) }
+            var notes by remember { mutableStateOf(notesPrefs.getString("notes", "")?.split("\n")?.filter { it.isNotBlank() } ?: emptyList()) }
+            TileEntrance(index = entrance++) {
                 NotesWidget(
                     notes = notes,
                     onAdd = { text -> notes = notes + text; notesPrefs.edit().putString("notes", notes.joinToString("\n")).apply() },
                     onRemove = { idx -> notes = notes.filterIndexed { i, _ -> i != idx }; notesPrefs.edit().putString("notes", notes.joinToString("\n")).apply() },
                     modifier = Modifier.fillMaxWidth().alpha(contentAlpha)
                 )
+            }
 
-                if (HomeModule.MEDIA in modules) {
-                    val albumArt by viewModel.albumArt.collectAsState()
+            if (HomeModule.MEDIA in modules) {
+                val albumArt by viewModel.albumArt.collectAsState()
+                TileEntrance(index = entrance++) {
                     MusicWidget(
                         title = nowPlaying?.title,
                         artist = nowPlaying?.artist,
@@ -318,12 +318,16 @@ fun HomeScreen(
                         modifier = Modifier.fillMaxWidth().alpha(contentAlpha)
                     )
                 }
-                if (HomeModule.BATTERY in modules) {
+            }
+            if (HomeModule.BATTERY in modules) {
+                TileEntrance(index = entrance++) {
                     Box(modifier = Modifier.alpha(contentAlpha)) {
                         BatteryTile(percent = battery.percent, isCharging = battery.isCharging)
                     }
                 }
-                if (HomeModule.PEOPLE in modules) {
+            }
+            if (HomeModule.PEOPLE in modules) {
+                TileEntrance(index = entrance++) {
                     Box(modifier = Modifier.alpha(contentAlpha)) {
                         PeopleHubTile(
                             contacts = contacts,
@@ -332,7 +336,9 @@ fun HomeScreen(
                         )
                     }
                 }
+            }
 
+            TileEntrance(index = entrance++) {
                 Row(
                     modifier = Modifier.fillMaxWidth().alpha(contentAlpha).heightIn(min = 96.dp * fontScale).height(IntrinsicSize.Min),
                     horizontalArrangement = Arrangement.spacedBy(TileDefaults.Gutter)
@@ -348,12 +354,8 @@ fun HomeScreen(
                             verticalArrangement = Arrangement.Center,
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
-                            Text(
-                                text = "ï¼‹",
-                                style = StandardType.headline(32.sp),
-                                color = accent
-                            )
-                            Spacer(Modifier.height(4.dp))
+                            PlusCross(color = accent, size = 18.dp)
+                            Spacer(Modifier.height(8.dp))
                             MonoLabel("APPS", size = 10.sp, color = content)
                         }
                     }
@@ -361,6 +363,8 @@ fun HomeScreen(
                     SettingsCaption(modifier = Modifier.weight(1f).fillMaxHeight(), onClick = onOpenSettings)
                 }
             }
+            // Room for the fixed quick-settings square so it never sits on the last row.
+            if (HomeModule.QUICK_SETTINGS in modules) Spacer(Modifier.height(56.dp))
         }
 
         if (HomeModule.QUICK_SETTINGS in modules) {
@@ -392,7 +396,8 @@ fun HomeScreen(
 private fun EditBar(onDone: () -> Unit) {
     val colors = LocalAppTheme.current
     val pulseTransition = rememberInfiniteTransition(label = "editPulse")
-    val pulse by pulseTransition.animateFloat(
+    // Read in graphicsLayer only: the pulse must not recompose the bar every frame.
+    val pulse = pulseTransition.animateFloat(
         initialValue = 0.35f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
@@ -411,9 +416,9 @@ private fun EditBar(onDone: () -> Unit) {
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             modifier = Modifier.weight(1f)
         ) {
-            Box(Modifier.size(8.dp).background(colors.accent).alpha(pulse))
-            MonoLabel("EDITING", size = 10.sp, color = colors.ink, weight = FontWeight.Bold, modifier = Modifier.alpha(pulse))
-            MonoLabel("// TAP: SIZE  â—€ â–¶: MOVE  âœ•: UNPIN  â– : ACCENT", size = 10.sp, color = colors.ink, modifier = Modifier.weight(1f))
+            Box(Modifier.size(8.dp).graphicsLayer { alpha = pulse.value }.background(colors.accent))
+            MonoLabel("EDITING", size = 10.sp, color = colors.ink, weight = FontWeight.Bold, modifier = Modifier.graphicsLayer { alpha = pulse.value })
+            MonoLabel("// TAP: SIZE  ◀ ▶: MOVE  ✕: UNPIN  ■: ACCENT", size = 10.sp, color = colors.ink, modifier = Modifier.weight(1f))
         }
         Spacer(Modifier.width(TileDefaults.Gutter))
         Box(
@@ -502,7 +507,7 @@ private fun DayTile(modifier: Modifier = Modifier) {
             {
                 val c = LocalTileColors.current.content
                 Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.SpaceBetween) {
-                    FitHeadline(day, 96.sp, color = c)
+                    FitHeadlineText(day, 96.sp, color = c)
                     MonoLabel(date, size = 13.sp, color = c, weight = FontWeight.Bold)
                 }
             },
@@ -526,78 +531,58 @@ private fun HomeNowClock(nowPlaying: MediaInfo?, modifier: Modifier = Modifier) 
             delay(1000)
         }
     }
-    val time = SimpleDateFormat("h:mm", Locale.getDefault()).format(Date(now))
-    val date = SimpleDateFormat("EEEE Â· MMM d", Locale.getDefault()).format(Date(now)).uppercase(Locale.getDefault())
+    val locale = Locale.getDefault()
+    val time = SimpleDateFormat("h:mm", locale).format(Date(now))
+    val weekday = SimpleDateFormat("EEEE", locale).format(Date(now))
+    val date = SimpleDateFormat("MMM d", locale).format(Date(now))
     Column(modifier = modifier) {
-        NowPlayingMini(nowPlaying = nowPlaying)
         Text(
             text = time,
-            style = TextStyle(fontFamily = SpaceGrotesk, fontWeight = FontWeight.Black, fontSize = 64.sp, letterSpacing = (-0.035f).sp),
+            style = StandardType.display(64.sp).copy(fontFeatureSettings = "tnum"),
             color = colors.ink,
             maxLines = 1,
             softWrap = false
         )
-        MonoLabel(date, size = 13.sp, color = colors.muted, weight = FontWeight.Bold)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            MonoLabel(weekday, size = 11.sp, color = colors.accent, weight = FontWeight.Bold)
+            Spacer(Modifier.width(8.dp))
+            MonoLabel("// $date", size = 11.sp, color = colors.ink, weight = FontWeight.Bold)
+        }
+        NowPlayingMini(nowPlaying = nowPlaying)
     }
 }
 
+/** Accent-ruled strip under the clock; composes nothing at all when no media session exists. */
 @Composable
 private fun NowPlayingMini(nowPlaying: MediaInfo?, modifier: Modifier = Modifier) {
+    if (nowPlaying == null) return
     val colors = LocalAppTheme.current
-    val isPlaying = nowPlaying?.isPlaying == true
-    if (!isPlaying) {
-        Column(modifier = modifier) {
-            MonoLabel("NOTHING PLAYING", size = 9.sp, color = colors.muted, weight = FontWeight.Medium)
-        }
-        return
-    }
-    val title = nowPlaying?.title ?: "TITLE"
-    Box(
+    val title = nowPlaying.title ?: "UNKNOWN"
+    Row(
         modifier = modifier
             .fillMaxWidth()
+            .padding(top = 10.dp)
             .border(TileDefaults.Border, colors.accent)
-            .padding(horizontal = 12.dp, vertical = 10.dp)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            Box(Modifier.size(10.dp).background(colors.accent))
-            Column {
-                MonoLabel("NOW PLAYING Â· " + title, size = 11.sp, color = colors.ink, weight = FontWeight.Bold, maxLines = 1)
-                MonoLabel("MUSIC ACTIVE", size = 9.sp, color = colors.muted, weight = FontWeight.Medium)
-            }
-        }
+        Box(Modifier.size(10.dp).background(colors.accent))
+        MonoLabel(
+            (if (nowPlaying.isPlaying) "NOW PLAYING // " else "PAUSED // ") + title,
+            size = 11.sp,
+            color = colors.ink,
+            weight = FontWeight.Bold,
+            maxLines = 1,
+            modifier = Modifier.weight(1f)
+        )
     }
-}
-
-/** One-line display headline that steps its size down until the word fits the width. */
-@Composable
-private fun FitHeadline(text: String, maxSize: TextUnit, color: Color, modifier: Modifier = Modifier) {
-    val measurer = rememberTextMeasurer()
-    var widthPx by remember { mutableIntStateOf(0) }
-    val size = remember(text, widthPx) {
-        var s = maxSize.value
-        while (widthPx > 0 && s > 32f &&
-            measurer.measure(text, StandardType.display(s.sp), softWrap = false, maxLines = 1).size.width > widthPx
-        ) s -= 4f
-        s.sp
-    }
-    Text(
-        text = text,
-        style = StandardType.display(size),
-        color = color,
-        maxLines = 1,
-        softWrap = false,
-        modifier = modifier
-            .fillMaxWidth()
-            .onSizeChanged { widthPx = it.width }
-            .alpha(if (widthPx == 0) 0f else 1f)
-    )
 }
 
 @Composable
 private fun PinnedGrid(
+    rows: List<List<AppItem>>,
+    firstIndex: Int,
     pinned: List<AppItem>,
     settings: SettingsState,
     editMode: Boolean,
@@ -608,15 +593,10 @@ private fun PinnedGrid(
     contextMenuTile: AppItem?,
     onContextMenuTile: (AppItem?) -> Unit
 ) {
-    val rows = remember(pinned) { packRows(pinned) }
     val context = LocalContext.current
-    val mid = rows.size / 2
     var draggedIndex by remember { mutableStateOf(-1) }
-    TileGroup(name = "ESSENTIALS") {
-        rows.take(mid).forEachIndexed { r, row -> renderRow(r, row, context, settings, editMode, fontScale, viewModel, launch, enterEdit, contextMenuTile, onContextMenuTile, pinned, draggedIndex) { draggedIndex = it } }
-    }
-    TileGroup(name = "RECENTLY ADDED") {
-        rows.drop(mid).forEachIndexed { r, row -> renderRow(r + mid, row, context, settings, editMode, fontScale, viewModel, launch, enterEdit, contextMenuTile, onContextMenuTile, pinned, draggedIndex) { draggedIndex = it } }
+    rows.forEachIndexed { r, row ->
+        renderRow(firstIndex + r, row, context, settings, editMode, fontScale, viewModel, launch, enterEdit, contextMenuTile, onContextMenuTile, pinned, draggedIndex) { draggedIndex = it }
     }
 }
 
@@ -639,16 +619,17 @@ private fun renderRow(
 ) {
     val large = row.any { it.tileSize == TileSize.LARGE }
     val targetHeight = (if (large) LargeRowHeight else RowHeight) * fontScale
-    val animatedHeight by animateDpAsState(
-        targetValue = targetHeight,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessMediumLow),
+    // Metro: no bounce on a size change, just a quick settle.
+    val animatedHeight by animateFloatAsState(
+        targetValue = targetHeight.value,
+        animationSpec = RefreshRate.springSpec(),
         label = "rowHeight"
     )
     val tileHeightPx = with(LocalDensity.current) { targetHeight.toPx() }
     val currentTileHeightPx by rememberUpdatedState(tileHeightPx)
     TileEntrance(index = r) {
         Row(
-            modifier = Modifier.fillMaxWidth().height(animatedHeight),
+            modifier = Modifier.fillMaxWidth().height(animatedHeight.dp),
             horizontalArrangement = Arrangement.spacedBy(TileDefaults.Gutter)
         ) {
                 row.forEach { app ->
@@ -656,7 +637,7 @@ private fun renderRow(
                         val span = app.tileSize.span()
                         val animatedSpan by animateFloatAsState(
                             targetValue = span.toFloat(),
-                            animationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessMediumLow),
+                            animationSpec = RefreshRate.springSpec(),
                             label = "span"
                         )
                         val cycle = { viewModel.setTileSize(app.packageName, app.tileSize.next()) }
@@ -667,7 +648,6 @@ private fun renderRow(
                             modifier = Modifier
                                 .weight(animatedSpan)
                                 .fillMaxHeight()
-                                .animateContentSize(spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow))
                                 .graphicsLayer {
                                     if (draggedIndex == index) {
                                         scaleX = 1.1f
@@ -713,14 +693,10 @@ private fun renderRow(
                                     2 -> 32.sp
                                     else -> 40.sp
                                 },
-                                trailing = if (app.isAccent) "â†’" else null,
+                                trailing = if (app.isAccent) "→" else null,
                                 editMode = editMode,
                                 onCycleSize = cycle,
                                 onLongPress = { if (editMode) enterEdit() else onContextMenuTile(app) }
-                            )
-                            NotificationBadge(
-                                count = if (pinned.indexOf(app) < 2) 2 else 0,
-                                modifier = Modifier.align(Alignment.TopEnd)
                             )
                             if (editMode) EditControls(app = app, viewModel = viewModel)
                             DropdownMenu(
@@ -771,7 +747,7 @@ private fun renderRow(
                                     text = { Text("ADD WIDGET") },
                                     onClick = {
                                         onContextMenuTile(null)
-                                        Toast.makeText(context, "WIDGET PICKER â€” COMING SOON", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, "WIDGET PICKER — COMING SOON", Toast.LENGTH_SHORT).show()
                                     }
                                 )
                                 DropdownMenuItem(
@@ -805,13 +781,13 @@ private fun EditControls(app: AppItem, viewModel: StandardAppViewModel) {
             Box(Modifier.size(10.dp).background(if (app.isAccent) colors.accent else colors.onInk))
         }
         EditButton("Unpin", Modifier.align(Alignment.TopEnd), onTap = { viewModel.unpin(app.packageName) }) {
-            MonoLabel("âœ•", size = 12.sp, color = colors.onInk, weight = FontWeight.Bold)
+            MonoLabel("✕", size = 12.sp, color = colors.onInk, weight = FontWeight.Bold)
         }
         EditButton("Move earlier", Modifier.align(Alignment.BottomStart), onTap = { viewModel.movePinned(app.packageName, -1) }) {
-            MonoLabel("â—€", size = 11.sp, color = colors.onInk, weight = FontWeight.Bold)
+            MonoLabel("◀", size = 11.sp, color = colors.onInk, weight = FontWeight.Bold)
         }
         EditButton("Move later", Modifier.align(Alignment.BottomEnd), onTap = { viewModel.movePinned(app.packageName, 1) }) {
-            MonoLabel("â–¶", size = 11.sp, color = colors.onInk, weight = FontWeight.Bold)
+            MonoLabel("▶", size = 11.sp, color = colors.onInk, weight = FontWeight.Bold)
         }
         if (app.tileSize != TileSize.SMALL) {
             ResizeHandle(onResize = resize, modifier = Modifier.align(Alignment.BottomCenter))
@@ -899,8 +875,8 @@ private fun QuoteLine(quotes: List<String>, modifier: Modifier = Modifier) {
     }
     Crossfade(targetState = index, animationSpec = tween(600), label = "quote", modifier = modifier) { i ->
         Column {
-            MonoLabel("â€œ" + quotes[i % quotes.size] + "â€", size = 14.sp, color = ink, maxLines = 4)
-            MonoLabel("â€”", size = 14.sp, color = ink)
+            MonoLabel("“" + quotes[i % quotes.size] + "”", size = 14.sp, color = ink, maxLines = 4)
+            MonoLabel("—", size = 14.sp, color = ink)
         }
     }
 }
@@ -920,6 +896,6 @@ private fun SettingsCaption(modifier: Modifier = Modifier, onClick: () -> Unit) 
         Spacer(Modifier.height(6.dp))
         Box(Modifier.fillMaxWidth().height(1.dp).background(colors.ink))
         Spacer(Modifier.height(4.dp))
-        MonoLabel("SETTINGS â†’", size = 9.sp, color = colors.muted)
+        MonoLabel("SETTINGS →", size = 9.sp, color = colors.muted)
     }
 }

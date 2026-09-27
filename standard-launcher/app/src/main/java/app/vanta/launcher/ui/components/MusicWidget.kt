@@ -1,25 +1,18 @@
-﻿package app.vanta.launcher.ui.components
+package app.vanta.launcher.ui.components
 
 import android.graphics.Bitmap
-import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.StartOffset
 import androidx.compose.animation.core.StartOffsetType
-import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -29,21 +22,20 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
@@ -53,6 +45,8 @@ import app.vanta.launcher.ui.theme.JetBrainsMono
 import app.vanta.launcher.ui.theme.LocalAppTheme
 import app.vanta.launcher.ui.theme.SpaceGrotesk
 import kotlin.random.Random
+
+private const val IdleHeightDp = 56
 
 @Composable
 fun MusicWidget(
@@ -71,13 +65,20 @@ fun MusicWidget(
     modifier: Modifier = Modifier
 ) {
     val theme = LocalAppTheme.current
-    val widgetHeightDp = when (size) {
+    // No media session at all: collapse to one row instead of an empty card.
+    val idle = title == null && !isPlaying
+    val targetHeight = if (idle) IdleHeightDp else when (size) {
         WidgetSize.COMPACT -> 80
         WidgetSize.MEDIUM -> 120
         WidgetSize.EXPANDED -> 180
     }
+    val height by animateFloatAsState(
+        targetValue = targetHeight.toFloat(),
+        animationSpec = tween(240, easing = LumiaEasing),
+        label = "musicHeight"
+    )
     val pulseTransition = rememberInfiniteTransition(label = "musicPulse")
-    val pulseAlpha by pulseTransition.animateFloat(
+    val pulseAlpha = pulseTransition.animateFloat(
         initialValue = 0.15f,
         targetValue = 0.7f,
         animationSpec = infiniteRepeatable(
@@ -86,77 +87,96 @@ fun MusicWidget(
         ),
         label = "musicPulseAlpha"
     )
-    val sizedModifier = modifier
-        .fillMaxWidth()
-        .animateContentSize(spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow))
-        .height(widgetHeightDp.dp)
-    val tileModifier = if (isPlaying) {
-        sizedModifier.border(2.dp, theme.accent.copy(alpha = pulseAlpha))
-    } else {
-        sizedModifier
-    }
+    val accent = theme.accent
 
-    Tile(modifier = tileModifier) {
-        val c = LocalTileColors.current.content
-        Column(modifier = Modifier.fillMaxSize()) {
-            Row(
-                modifier = Modifier.fillMaxWidth().weight(1f),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(TileDefaults.Gutter)
-            ) {
-                if (size != WidgetSize.COMPACT) {
-                    AlbumArt(bitmap = albumArt, modifier = Modifier.size(76.dp))
+    Tile(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(height.dp)
+            .drawWithContent {
+                drawContent()
+                // Playing: the outline breathes in accent. Drawn, not composed, so it costs no recomposition.
+                if (isPlaying) {
+                    val w = TileDefaults.Border.toPx()
+                    drawRect(
+                        color = accent.copy(alpha = pulseAlpha.value),
+                        topLeft = Offset(w / 2f, w / 2f),
+                        size = Size(this.size.width - w, this.size.height - w),
+                        style = Stroke(w)
+                    )
                 }
-                Column(
-                    modifier = Modifier.weight(1f).fillMaxHeight(),
-                    verticalArrangement = if (size == WidgetSize.COMPACT) Arrangement.Center else Arrangement.SpaceBetween
+            },
+        contentPadding = if (idle) 0.dp else TileDefaults.Padding
+    ) {
+        val c = LocalTileColors.current.content
+        if (idle) {
+            Box(
+                modifier = Modifier.fillMaxSize().padding(horizontal = 14.dp),
+                contentAlignment = Alignment.CenterStart
+            ) {
+                MonoLabel("NOTHING PLAYING // OPEN A MUSIC APP", size = 11.sp, color = c, maxLines = 1)
+            }
+        } else {
+            Column(modifier = Modifier.fillMaxSize()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().weight(1f),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(TileDefaults.Gutter)
                 ) {
+                    if (size != WidgetSize.COMPACT) {
+                        AlbumArt(bitmap = albumArt, modifier = Modifier.size(44.dp))
+                    }
                     Column(
-                        modifier = Modifier.tilePress(onTap = {}, onLongPress = { sizeCycle() }, tilt = false)
+                        modifier = Modifier.weight(1f).fillMaxHeight(),
+                        verticalArrangement = if (size == WidgetSize.COMPACT) Arrangement.Center else Arrangement.SpaceBetween
                     ) {
-                        HeadlineText(
-                            text = title?.uppercase() ?: "NO MUSIC PLAYING",
-                            size = if (size == WidgetSize.COMPACT) 16.sp else 18.sp,
-                            color = c,
-                            maxLines = 1
-                        )
-                        if (size != WidgetSize.COMPACT) {
-                            MonoLabel(
-                                text = artist ?: "OPEN YOUR MUSIC APP",
-                                size = 11.sp,
-                                color = c.copy(alpha = 0.8f),
+                        Column(
+                            modifier = Modifier.tilePress(onTap = {}, onLongPress = { sizeCycle() }, tilt = false)
+                        ) {
+                            HeadlineText(
+                                text = title?.uppercase() ?: "UNKNOWN",
+                                size = if (size == WidgetSize.COMPACT) 16.sp else 18.sp,
+                                color = c,
                                 maxLines = 1
                             )
+                            if (size != WidgetSize.COMPACT) {
+                                MonoLabel(
+                                    text = artist ?: "—",
+                                    size = 11.sp,
+                                    color = c.copy(alpha = 0.8f),
+                                    maxLines = 1
+                                )
+                            }
                         }
-                    }
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(20.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            TransportGlyph("\u23EE", onPrevious, "Previous track")
-                            TransportGlyph(if (isPlaying) "\u23F8" else "\u25B6", onPlayPause, "Play or pause")
-                            TransportGlyph("\u23ED", onNext, "Next track")
-                        }
-                        if (size == WidgetSize.EXPANDED) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Row(
-                                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                horizontalArrangement = Arrangement.spacedBy(20.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                OptionGlyph("\u2630", onQueue, "Queue")
-                                OptionGlyph("\u2661", onFavorite, "Favorite")
-                                OptionGlyph("\u21C4", onShuffle, "Shuffle")
+                                TransportGlyph("⏮", onPrevious, "Previous track")
+                                TransportGlyph(if (isPlaying) "⏸" else "▶", onPlayPause, "Play or pause")
+                                TransportGlyph("⏭", onNext, "Next track")
+                            }
+                            if (size == WidgetSize.EXPANDED) {
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    OptionGlyph("☰", onQueue, "Queue")
+                                    OptionGlyph("♡", onFavorite, "Favorite")
+                                    OptionGlyph("⇄", onShuffle, "Shuffle")
+                                }
                             }
                         }
                     }
                 }
-            }
-            if (size != WidgetSize.COMPACT) {
-                Spacer(Modifier.height(6.dp))
-                MusicProgressBar(isPlaying = isPlaying, modifier = Modifier.fillMaxWidth())
-            }
-            if (size == WidgetSize.EXPANDED) {
-                MusicVisualizer(isPlaying = isPlaying, modifier = Modifier.fillMaxWidth())
+                if (size != WidgetSize.COMPACT) {
+                    Spacer(Modifier.height(6.dp))
+                    MusicProgressBar(isPlaying = isPlaying, modifier = Modifier.fillMaxWidth())
+                }
+                if (size == WidgetSize.EXPANDED) {
+                    MusicVisualizer(isPlaying = isPlaying, modifier = Modifier.fillMaxWidth())
+                }
             }
         }
     }
@@ -226,6 +246,7 @@ fun MusicVisualizer(isPlaying: Boolean, modifier: Modifier = Modifier, bars: Int
     }
 }
 
+/** Square album art; without a bitmap it is an accent square with a note glyph. No rounding on paper. */
 @Composable
 fun AlbumArt(bitmap: Bitmap?, modifier: Modifier = Modifier) {
     val colors = LocalAppTheme.current
@@ -234,19 +255,17 @@ fun AlbumArt(bitmap: Bitmap?, modifier: Modifier = Modifier) {
             painter = BitmapPainter(bitmap.asImageBitmap()),
             contentDescription = null,
             contentScale = ContentScale.Crop,
-            modifier = modifier.clip(RoundedCornerShape(8.dp))
+            modifier = modifier.clipToBounds()
         )
     } else {
         Box(
-            modifier = modifier
-                .clip(CircleShape)
-                .background(colors.accent),
+            modifier = modifier.background(colors.accent),
             contentAlignment = Alignment.Center
         ) {
             Text(
-                text = "â™ª",
-                color = Color.White,
-                fontSize = 36.sp,
+                text = "♪",
+                color = colors.onAccent,
+                fontSize = 22.sp,
                 fontFamily = SpaceGrotesk,
                 fontWeight = FontWeight.Black
             )
@@ -277,22 +296,10 @@ private fun TransportGlyph(glyph: String, onTap: () -> Unit, label: String) {
 @Composable
 private fun OptionGlyph(glyph: String, onTap: () -> Unit, label: String) {
     val c = LocalTileColors.current.content
-    val interaction = remember { MutableInteractionSource() }
-    val pressed by interaction.collectIsPressedAsState()
-    val scale by animateFloatAsState(
-        targetValue = if (pressed) 0.9f else 1f,
-        animationSpec = tween(durationMillis = 100, easing = LinearEasing),
-        label = "optionGlyphScale"
-    )
     Box(
         modifier = Modifier
             .size(28.dp)
-            .scale(scale)
-            .clickable(
-                interactionSource = interaction,
-                indication = null,
-                onClick = onTap
-            )
+            .tilePress(onTap = onTap, tilt = false)
             .button(label, onTap),
         contentAlignment = Alignment.Center
     ) {

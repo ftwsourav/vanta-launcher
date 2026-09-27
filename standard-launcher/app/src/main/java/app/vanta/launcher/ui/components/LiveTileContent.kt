@@ -1,4 +1,4 @@
-﻿package app.vanta.launcher.ui.components
+package app.vanta.launcher.ui.components
 
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -40,12 +40,12 @@ object LiveTileContent {
         val city = prefs.getString("weather_city", null) ?: ""
         return buildString {
             append(temp); if (cond.isNotBlank()) append(" $cond")
-            if (city.isNotBlank()) append(" Â· $city")
+            if (city.isNotBlank()) append(" · $city")
         }.uppercase()
     }
 
     fun clockText(): String = SimpleDateFormat("h:mm", Locale.getDefault()).format(Date())
-    fun dateText(): String = SimpleDateFormat("EEE Â· MMM d", Locale.getDefault()).format(Date()).uppercase(Locale.getDefault())
+    fun dateText(): String = SimpleDateFormat("EEE · MMM d", Locale.getDefault()).format(Date()).uppercase(Locale.getDefault())
     fun secondsText(): String = SimpleDateFormat(":ss", Locale.getDefault()).format(Date())
 }
 

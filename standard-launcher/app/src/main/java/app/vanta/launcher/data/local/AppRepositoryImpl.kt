@@ -276,8 +276,13 @@ class AppRepositoryImpl(private val context: Context) : AppRepository {
     override fun launch(context: Context, packageName: String): Boolean {
         val intent = context.packageManager.getLaunchIntentForPackage(packageName) ?: return false
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        // WP tile-to-app: the new window clips out of the tile that was tapped, when we know which one.
+        val options = app.vanta.launcher.ui.components.LaunchOrigin.consume()?.let { (view, rect) ->
+            intent.sourceBounds = rect
+            android.app.ActivityOptions.makeClipRevealAnimation(view, rect.left, rect.top, rect.width(), rect.height()).toBundle()
+        }
         return try {
-            context.startActivity(intent)
+            context.startActivity(intent, options)
             true
         } catch (e: ActivityNotFoundException) {
             false

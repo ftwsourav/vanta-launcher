@@ -23,24 +23,24 @@ Grab the latest APK from the [Releases page](https://github.com/ftwsourav/vanta-
 - **People Hub** — contacts with initial avatars, tap to dial
 - **Weather Tile** — real Open-Meteo data, 3-day forecast, live conditions
 - **Floating Search Bar** — expandable, live-filters pinned apps
-- **Quick Settings FAB** — WiFi/BT/DND/Night toggles
+- **Quick Settings** — pull down from the header for a WiFi/BT/DND/flashlight/rotate/airplane/brightness sheet
 
 ### Tile Management
 - **Drag-to-reorder** — immediate drag in edit mode, tile lifts with shadow + scale
 - **Drag-to-resize** — drag corner triangle to grow/shrink tiles
 - **4 Tile Sizes** — SMALL (1×1), MEDIUM (2×2), WIDE (4×2), LARGE (4×4)
-- **Tile Groups** — named groups with headers (ESSENTIALS, RECENTLY ADDED)
+- **Turnstile motion** — tiles swing in around the left edge on every return to the launcher, and apps reveal out of their tile
 - **Long-press context menu** — Resize/Move/Pin/Remove/App Info/Add Widget
 
 ### Navigation
-- **3-page pivot** — Home / Apps / Focus with silky transitions
-- **Edge swipe** — left edge opens drawer, right edge goes back
+- **4-page pivot** — Home / Apps / Focus / Live with Windows 8.1 edge-pivot, WP7 turnstile or parallax transitions
+- **Edge swipe** — pull from either screen edge for your configured gesture action (next/prev page, search, focus, live)
 - **Smoothness presets** — SNAPPY / SMOOTH / LUXURIOUS / BOUNCY / GLASS
 
 ### Apps Drawer
 - **Alphabetical** with letter headers
 - **Alphabet scrubber** rail for fast jumping
-- **Semantic zoom** — pinch out to A-Z letter grid
+- **Semantic zoom** — tap a letter header (or pinch) for the Windows Phone A–Z letter grid
 - **App icons** shown on every row
 - **WP-style app bar** at bottom
 

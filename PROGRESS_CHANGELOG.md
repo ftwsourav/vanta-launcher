@@ -1,4 +1,46 @@
-# STANDARD. — v3.0 "Lumia Pro" — Progress & Changelog
+# Vanta — Progress & Changelog
+
+## v5.4 (2026-09-27) — "Turnstile": the Lumia motion pass
+
+### Motion
+- Tiles turnstile in (hinged on the left edge, 32 ms stagger) on first show and again every time the launcher returns to the foreground.
+- Tapping a tile swings it out around its left edge and the app window clip-reveals out of the tile bounds (ActivityOptions), Windows Phone tile-to-app.
+- Page transforms run in the draw phase: CUBE is the Windows 8.1 edge pivot, TAP FLIP the WP7 turnstile, SMOOTH a parallax slide; one light haptic tick on settle.
+- Pivot header in bold mono with an animated accent underline and parallax drift; settings sheet slides up on the Lumia curve.
+- Edge swipes (gesture actions) now beat the pager: pointer read in the Initial pass, 36 dp zone, accent pull bar with a haptic notch.
+- Quick settings slides from the top, nine tiles turnstile in, brutalist brightness slider, drag-to-close.
+- Search, recents, glance, app picker and notification cards enter with turnstile staggers; settings values slide 8 dp on change.
+- Cinematic splash is 650 ms with the real Vanta logo wiping into the page.
+
+### Home
+- One continuous pinned grid; the fake ESSENTIALS / RECENTLY ADDED halves and the hard-coded badges are gone.
+- Heavy tabular clock with the weekday in accent; the now-playing strip only appears while something plays.
+- Square Metro badges, square music and quick-settings buttons, a drawn plus glyph, task rows that animate in and out, a music widget that collapses when idle.
+
+### Apps
+- "GOOD APPS BETTER DAYS." headline sized to its column instead of breaking mid-word; app rows never truncate.
+- Windows Phone semantic zoom: tap a letter header for the A–Z grid. Search focus animates to accent, × clears, IME Search launches the top hit.
+- WP app bar with canvas-drawn glyphs and an expanding "more" row.
+
+### Live
+- Status rows laid out properly (right-aligned meta, no jammed glyphs) and only one permission prompt at a time.
+- The notification feed comes from the notification listener, so every app's notifications show (before, only Vanta's own could).
+- Cards swipe to dismiss with spring-back; heavy tabular clock with a minute flip.
+
+### Focus
+- Tabular stopwatch and timer digits, drawn progress rule and blink, brutalist note dialog, photo crossfade, suggestions limited to installed apps.
+
+### Settings
+- Windows Phone toggle switches, animated value rows, collapsible sections with a rotating +/−, square swatches with a selection ring, a brutalist app-picker sheet, a backup/restore status label.
+
+### Fixes
+- 53 double-encoded characters (· “ ” —) across 13 files.
+- Live-tile name frames no longer render huge and truncated.
+- Task ids no longer collide after a removal.
+- Duplicate onboarding removed from Settings; the dead SLIDEABLE HOME toggle is gone.
+
+---
+
 
 > A brutalist Android launcher replacement inspired by Windows Phone / Lumia Metro UI.
 > Built with Kotlin + Jetpack Compose. Targeting OnePlus 13 (CPH2653), Android 14+.

@@ -1,14 +1,18 @@
-﻿package app.vanta.launcher.ui.components
+package app.vanta.launcher.ui.components
 
-import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -25,19 +29,26 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontStyle
@@ -45,6 +56,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.vanta.launcher.ui.theme.LocalAppTheme
@@ -121,7 +133,8 @@ fun TasksWidget(
     val hasIncomplete = tasks.any { !it.completed }
     val visibleTasks = tasks.take(size.maxItems)
     val pulseTransition = rememberInfiniteTransition(label = "tasksPulse")
-    val pulseAlpha by pulseTransition.animateFloat(
+    // Read only inside graphicsLayer so the pulse never recomposes the widget.
+    val pulseAlpha = pulseTransition.animateFloat(
         initialValue = 0.3f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
@@ -140,10 +153,7 @@ fun TasksWidget(
     }
 
     Tile(
-        modifier = modifier
-            .fillMaxWidth()
-            .animateContentSize(spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow))
-            .height(size.heightDp.dp),
+        modifier = modifier.fillMaxWidth().height(size.heightDp.dp),
         style = TileStyle.Outline,
         contentPadding = 0.dp
     ) {
@@ -165,7 +175,8 @@ fun TasksWidget(
                         Box(
                             Modifier
                                 .size(6.dp)
-                                .background(theme.accent.copy(alpha = pulseAlpha), CircleShape)
+                                .graphicsLayer { alpha = pulseAlpha.value }
+                                .background(theme.accent)
                         )
                     }
                     MonoLabel("TASKS", size = 11.sp, color = c)
@@ -180,7 +191,9 @@ fun TasksWidget(
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 items(visibleTasks, key = { it.id }) { task ->
-                    TaskRow(task = task, onToggle = onToggle, onRemove = onRemove)
+                    AnimatedRow(onGone = { onRemove(task.id) }) { dismiss ->
+                        TaskRow(task = task, onToggle = onToggle, onRemove = dismiss)
+                    }
                 }
             }
 
@@ -203,17 +216,45 @@ fun TasksWidget(
                     }
                 }
                 Spacer(Modifier.width(8.dp))
-                Box(
-                    modifier = Modifier
-                        .size(28.dp)
-                        .border(2.dp, c)
-                        .tilePress(onTap = submit, tilt = false),
-                    contentAlignment = Alignment.Center
-                ) {
-                    MonoLabel("ï¼‹", size = 13.sp, color = c, weight = FontWeight.Bold)
-                }
+                SquareButton(label = "Add task", onTap = submit) { PlusCross(color = c, size = 12.dp) }
             }
         }
+    }
+}
+
+/**
+ * List row motion: enters with a 4dp slide + fade; [content] receives `dismiss`, which shrinks the
+ * row out (180ms) and only then fires [onGone] so the caller removes it from its list.
+ */
+@Composable
+private fun AnimatedRow(onGone: () -> Unit, content: @Composable (dismiss: () -> Unit) -> Unit) {
+    val visible = remember { MutableTransitionState(false).apply { targetState = true } }
+    val slidePx = with(LocalDensity.current) { 4.dp.roundToPx() }
+    LaunchedEffect(visible.isIdle, visible.targetState) {
+        if (visible.isIdle && !visible.targetState) onGone()
+    }
+    AnimatedVisibility(
+        visibleState = visible,
+        enter = fadeIn(tween(220, easing = LumiaEasing)) + slideInVertically(tween(220, easing = LumiaEasing)) { slidePx },
+        exit = shrinkVertically(tween(180, easing = LumiaEasing)) + fadeOut(tween(150, easing = LumiaEasing))
+    ) {
+        content { visible.targetState = false }
+    }
+}
+
+/** Square outline button with the Metro press; [side] is the hit box. */
+@Composable
+private fun SquareButton(label: String, onTap: () -> Unit, side: Dp = 28.dp, content: @Composable () -> Unit) {
+    val c = LocalTileColors.current.content
+    Box(
+        modifier = Modifier
+            .size(side)
+            .border(TileDefaults.Border, c)
+            .tilePress(onTap = onTap, tilt = false)
+            .button(label, onTap),
+        contentAlignment = Alignment.Center
+    ) {
+        content()
     }
 }
 
@@ -221,10 +262,17 @@ fun TasksWidget(
 private fun TaskRow(
     task: TaskItem,
     onToggle: (Int) -> Unit,
-    onRemove: (Int) -> Unit
+    onRemove: () -> Unit
 ) {
     val fill = LocalTileColors.current.fill
     val c = LocalTileColors.current.content
+    // 0 = open square, 1 = ink-filled; read only in draw/graphicsLayer lambdas.
+    val done by animateFloatAsState(
+        targetValue = if (task.completed) 1f else 0f,
+        animationSpec = tween(120, easing = LumiaEasing),
+        label = "taskDone"
+    )
+    val toggle = { onToggle(task.id) }
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically
@@ -232,33 +280,41 @@ private fun TaskRow(
         Box(
             modifier = Modifier
                 .size(18.dp)
-                .border(2.dp, c)
-                .then(if (task.completed) Modifier.background(c) else Modifier)
-                .tilePress(onTap = { onToggle(task.id) }, tilt = false),
+                .drawBehind {
+                    val w = TileDefaults.Border.toPx()
+                    drawRect(c, topLeft = Offset(w / 2f, w / 2f), size = Size(size.width - w, size.height - w), style = Stroke(w))
+                    val s = size.width * done
+                    if (s > 0f) {
+                        drawRect(c, topLeft = Offset((size.width - s) / 2f, (size.height - s) / 2f), size = Size(s, s))
+                    }
+                }
+                .tilePress(onTap = toggle, tilt = false)
+                .button(if (task.completed) "Mark not done" else "Mark done", toggle),
             contentAlignment = Alignment.Center
         ) {
             if (task.completed) {
-                MonoLabel("âœ“", size = 10.sp, color = fill, weight = FontWeight.Bold)
+                MonoLabel("✓", size = 10.sp, color = fill, weight = FontWeight.Bold)
             }
         }
         Spacer(Modifier.width(8.dp))
         Text(
             text = task.text,
-            color = c.copy(alpha = if (task.completed) 0.5f else 1f),
+            color = c,
             style = TextStyle(fontFamily = SpaceGrotesk, fontWeight = FontWeight.Medium, fontSize = 13.sp),
             textDecoration = if (task.completed) TextDecoration.LineThrough else TextDecoration.None,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f)
+            modifier = Modifier.weight(1f).graphicsLayer { alpha = 1f - 0.5f * done }
         )
         Spacer(Modifier.width(6.dp))
         Box(
             modifier = Modifier
                 .size(20.dp)
-                .tilePress(onTap = { onRemove(task.id) }, tilt = false),
+                .tilePress(onTap = onRemove, tilt = false)
+                .button("Remove task", onRemove),
             contentAlignment = Alignment.Center
         ) {
-            MonoLabel("âœ•", size = 10.sp, color = c.copy(alpha = 0.6f))
+            MonoLabel("✕", size = 10.sp, color = c.copy(alpha = 0.6f))
         }
     }
 }
@@ -306,26 +362,31 @@ fun NotesWidget(
             ) {
                 shown.forEachIndexed { i, note ->
                     val realIndex = startIndex + i
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = note,
-                            color = c.copy(alpha = 0.7f),
-                            style = TextStyle(fontFamily = SpaceGrotesk, fontWeight = FontWeight.Medium, fontSize = 12.sp, fontStyle = FontStyle.Italic),
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f)
-                        )
-                        Spacer(Modifier.width(4.dp))
-                        Box(
-                            modifier = Modifier
-                                .size(18.dp)
-                                .tilePress(onTap = { onRemove(realIndex) }, tilt = false),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            MonoLabel("âœ•", size = 9.sp, color = c.copy(alpha = 0.5f))
+                    key(realIndex, note) {
+                        AnimatedRow(onGone = { onRemove(realIndex) }) { dismiss ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = note,
+                                    color = c.copy(alpha = 0.7f),
+                                    style = TextStyle(fontFamily = SpaceGrotesk, fontWeight = FontWeight.Medium, fontSize = 12.sp, fontStyle = FontStyle.Italic),
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                Spacer(Modifier.width(4.dp))
+                                Box(
+                                    modifier = Modifier
+                                        .size(18.dp)
+                                        .tilePress(onTap = dismiss, tilt = false)
+                                        .button("Remove note", dismiss),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    MonoLabel("✕", size = 9.sp, color = c.copy(alpha = 0.5f))
+                                }
+                            }
                         }
                     }
                 }
@@ -347,26 +408,22 @@ fun NotesWidget(
                         keyboardActions = KeyboardActions(onDone = { submit() })
                     )
                     Spacer(Modifier.width(8.dp))
-                    Box(
-                        modifier = Modifier
-                            .size(24.dp)
-                            .border(2.dp, c)
-                            .tilePress(onTap = submit, tilt = false),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        MonoLabel("âœ•", size = 11.sp, color = c)
-                    }
+                    SquareButton(label = "Add note", onTap = submit, side = 24.dp) { PlusCross(color = c, size = 10.dp) }
                 }
             } else {
+                // The whole row is the button; the square is its glyph.
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 12.dp, vertical = 8.dp)
-                        .tilePress(onTap = { inputting = true }, tilt = false),
+                        .tilePress(onTap = { inputting = true }, tilt = false)
+                        .button("New note") { inputting = true },
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    MonoLabel("ï¼‹", size = 12.sp, color = c, weight = FontWeight.Bold)
-                    Spacer(Modifier.width(6.dp))
+                    Box(Modifier.size(24.dp).border(TileDefaults.Border, c), contentAlignment = Alignment.Center) {
+                        PlusCross(color = c, size = 10.dp)
+                    }
+                    Spacer(Modifier.width(8.dp))
                     MonoLabel("NOTE", size = 11.sp, color = c.copy(alpha = 0.8f))
                 }
             }
