@@ -15,10 +15,12 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -138,6 +140,9 @@ fun WeatherTile(
 ) {
     var expanded by rememberSaveable { mutableStateOf(false) }
     val now = liveClockFormatted()
+    val context = LocalContext.current
+    val cachedFrames = remember { weatherFrames(context) }
+    val cachedHasData = cachedFrames[0].let { it.isNotBlank() && it != "--" }
     val unit = LocalSettings.current.weatherUnit
     val stale = weather == null || (System.currentTimeMillis() / 1000 - weather.lastUpdatedEpoch) > 600
     val updated = weather?.lastUpdatedEpoch?.let {
@@ -196,7 +201,8 @@ fun WeatherTile(
                 }
             }
             MonoLabel(
-                weather?.condition ?: if (weather == null && !isLoading) "TAP TO SET LOCATION" else "",
+                weather?.condition
+                    ?: if (weather == null && !isLoading) (if (cachedHasData) cachedFrames[0] else "TAP TO SET LOCATION") else "",
                 size = if (compact) 11.sp else 13.sp, color = c, maxLines = 1
             )
             if (!compact && weather != null) {

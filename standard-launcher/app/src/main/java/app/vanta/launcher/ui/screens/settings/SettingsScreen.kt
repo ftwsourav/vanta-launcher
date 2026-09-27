@@ -541,6 +541,7 @@ fun SettingsScreen(viewModel: StandardAppViewModel, onClose: () -> Unit) {
                 ActionRow(if (viewModel.mediaAccessGranted()) "NOTIFICATION ACCESS · GRANTED" else "NOTIFICATION ACCESS FOR NOW PLAYING") {
                     context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
                 }
+                BatteryOptimizationRow()
                 ActionRow(
                     label = if (resetArmed == 1) "TAP AGAIN TO RESET LAYOUT" else "RESET LAYOUT",
                     destructive = resetArmed == 1
@@ -1359,6 +1360,25 @@ private fun DefaultLauncherRow() {
                 context.startActivity(Intent(Settings.ACTION_HOME_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
             }
         }
+    }
+}
+
+@Composable
+private fun BatteryOptimizationRow() {
+    val context = LocalContext.current
+    val powerManager = remember { context.getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager }
+    var exempted by remember { mutableStateOf(powerManager?.isIgnoringBatteryOptimizations(context.packageName) == true) }
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        exempted = powerManager?.isIgnoringBatteryOptimizations(context.packageName) == true
+    }
+    LaunchedEffect(Unit) { exempted = powerManager?.isIgnoringBatteryOptimizations(context.packageName) == true }
+    ValueRow("BATTERY OPTIMIZATION", if (exempted) "EXEMPTED" else "OPTIMIZED") {
+        try {
+            val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
+            intent.data = android.net.Uri.parse("package:${context.packageName}")
+            intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            launcher.launch(intent)
+        } catch (e: Exception) { }
     }
 }
 

@@ -1,7 +1,10 @@
 ﻿package app.vanta.launcher
 
 import android.content.Context
+import android.content.Intent
 import android.os.Bundle
+import android.os.PowerManager
+import android.provider.Settings as AndroidSettings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -40,6 +43,17 @@ open class MainActivity : ComponentActivity() {
         val prefs = getSharedPreferences("standard_settings", Context.MODE_PRIVATE)
         val refreshMode = prefs.getString("refresh_rate_mode", "AUTO") ?: "AUTO"
         RefreshRate.applyRefreshRateMode(this, refreshMode)
+        val powerManager = getSystemService(POWER_SERVICE) as? PowerManager
+        val batteryPrompted = prefs.getBoolean("battery_prompted", false)
+        if (powerManager != null && !powerManager.isIgnoringBatteryOptimizations(packageName) && !batteryPrompted) {
+            try {
+                val intent = Intent(AndroidSettings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
+                intent.data = android.net.Uri.parse("package:$packageName")
+                intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                startActivity(intent)
+            } catch (e: Exception) { }
+            prefs.edit().putBoolean("battery_prompted", true).apply()
+        }
         setContent {
             val settings by viewModel.settings.collectAsState()
             val refreshModeRecheck = getSharedPreferences("standard_settings", Context.MODE_PRIVATE)

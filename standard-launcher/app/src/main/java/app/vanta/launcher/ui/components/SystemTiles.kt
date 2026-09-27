@@ -91,6 +91,11 @@ private fun android.content.Context.open(intent: Intent) {
 /** Flat ink bar instead of a ring: the mockups have no curves. */
 @Composable
 fun BatteryTile(percent: Int, isCharging: Boolean, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val (liveLevel, liveCharging) = rememberBatteryState()
+    val frames = batteryFrames(context)
+    val displayLevel = if (percent in 0..100) percent else liveLevel
+    val displayCharging = if (percent in 0..100) isCharging else liveCharging
     val accent = LocalAppTheme.current.accent
     Tile(modifier = modifier.fillMaxWidth().height(96.dp)) {
         val c = LocalTileColors.current.content
@@ -100,15 +105,15 @@ fun BatteryTile(percent: Int, isCharging: Boolean, modifier: Modifier = Modifier
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.Top
             ) {
-                MonoLabel(if (isCharging) "CHARGING //" else "BATTERY //", size = 11.sp, color = c)
-                CountUpText(percent, "%", fontSize = 32.sp, color = c)
+                MonoLabel(frames[1] + " //", size = 11.sp, color = c)
+                HeadlineText(frames[0], 32.sp, color = c)
             }
             Box(Modifier.fillMaxWidth().height(12.dp).border(TileDefaults.Border, c).padding(3.dp)) {
                 Box(
                     Modifier
                         .fillMaxHeight()
-                        .fillMaxWidth((percent / 100f).coerceIn(0f, 1f))
-                        .background(if (percent <= 15 && !isCharging) accent else c)
+                        .fillMaxWidth((displayLevel / 100f).coerceIn(0f, 1f))
+                        .background(if (displayLevel <= 15 && !displayCharging) accent else c)
                 )
             }
         }

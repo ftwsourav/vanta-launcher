@@ -23,8 +23,8 @@ android {
         applicationId = "app.vanta.launcher"
         minSdk = 30
         targetSdk = 35
-        versionCode = 52
-        versionName = "5.2"
+        versionCode = 53
+        versionName = "5.3"
         vectorDrawables { useSupportLibrary = true }
         ndk {
             abiFilters += listOf("armeabi-v7a", "arm64-v8a", "x86", "x86_64")

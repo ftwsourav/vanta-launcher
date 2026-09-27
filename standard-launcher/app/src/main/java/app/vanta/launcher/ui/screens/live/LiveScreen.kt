@@ -94,6 +94,8 @@ fun LiveScreen(
     var notifications by remember { mutableStateOf<List<NotifItem>>(emptyList()) }
     var dismissed by remember { mutableStateOf<Set<String>>(emptySet()) }
     var mutedApps by remember { mutableStateOf(loadMutedApps(context)) }
+    val regrantPrefs = remember { context.getSharedPreferences("standard_settings", Context.MODE_PRIVATE) }
+    var regrantPrompted by remember { mutableStateOf(regrantPrefs.getBoolean("notif_regrant_prompted", false)) }
     val toggleMute = { pkg: String ->
         val updated = if (pkg in mutedApps) mutedApps - pkg else mutedApps + pkg
         saveMutedApps(context, updated)
@@ -103,6 +105,13 @@ fun LiveScreen(
     LifecycleResumeEffect(Unit) {
         granted = checkGranted()
         onPauseOrDispose { }
+    }
+
+    LaunchedEffect(granted) {
+        if (granted && !regrantPrompted) {
+            regrantPrefs.edit().putBoolean("notif_regrant_prompted", true).apply()
+            regrantPrompted = true
+        }
     }
 
     LaunchedEffect(Unit) {
@@ -166,6 +175,18 @@ fun LiveScreen(
         }
 
         if (!granted) {
+            if (!regrantPrompted) {
+                TileEntrance(1) {
+                    RegrantExplainerTile(
+                        onOpenSettings = { openNotificationListenerSettings(context) },
+                        onDismiss = {
+                            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            regrantPrefs.edit().putBoolean("notif_regrant_prompted", true).apply()
+                            regrantPrompted = true
+                        }
+                    )
+                }
+            }
             TileEntrance(1) {
                 GrantAccessTile { openNotificationListenerSettings(context) }
             }
@@ -647,6 +668,92 @@ private fun GrantAccessTile(onTap: () -> Unit) {
             fontWeight = FontWeight.Black,
             fontSize = 20.sp
         )
+    }
+}
+
+@Composable
+private fun RegrantExplainerTile(
+    onOpenSettings: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val colors = LocalAppTheme.current
+    val pulse = rememberInfiniteTransition(label = "regrantPulse")
+    val pulseAlpha by pulse.animateFloat(
+        initialValue = 0.4f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(900), RepeatMode.Reverse),
+        label = "regrantBorder"
+    )
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(2.dp, colors.accent.copy(alpha = pulseAlpha))
+            .background(colors.tile)
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                modifier = Modifier
+                    .size(10.dp)
+                    .background(colors.accent)
+            )
+            Spacer(Modifier.width(10.dp))
+            Text(
+                text = "NOTIFICATIONS NEED RE-ENABLING",
+                color = colors.accent,
+                fontFamily = SpaceGrotesk,
+                fontWeight = FontWeight.Black,
+                fontSize = 16.sp,
+                letterSpacing = 0.5.sp,
+                modifier = Modifier.weight(1f)
+            )
+        }
+        Text(
+            text = "Vanta was just updated. Android requires you to re-grant notification access for the Live page to work. This is a one-time step.",
+            color = colors.ink.copy(alpha = 0.8f),
+            fontFamily = JetBrainsMono,
+            fontSize = 11.sp,
+            lineHeight = 15.sp
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .border(2.dp, colors.accent)
+                    .clickable { onOpenSettings() }
+                    .padding(vertical = 10.dp, horizontal = 12.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "OPEN SETTINGS",
+                    color = colors.accent,
+                    fontFamily = JetBrainsMono,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 12.sp,
+                    letterSpacing = 0.5.sp
+                )
+            }
+            Box(
+                modifier = Modifier
+                    .border(1.dp, colors.ink.copy(alpha = 0.3f))
+                    .clickable { onDismiss() }
+                    .padding(vertical = 10.dp, horizontal = 12.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "GOT IT",
+                    color = colors.ink.copy(alpha = 0.6f),
+                    fontFamily = JetBrainsMono,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 12.sp,
+                    letterSpacing = 0.5.sp
+                )
+            }
+        }
     }
 }
 

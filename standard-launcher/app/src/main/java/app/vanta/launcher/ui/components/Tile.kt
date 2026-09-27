@@ -233,6 +233,27 @@ private fun Modifier.resizeCorner(enabled: Boolean, color: Color): Modifier {
     }
 }
 
+private enum class LiveTileKind { NONE, CLOCK, WEATHER, BATTERY }
+
+private fun detectLiveTileKind(packageName: String, context: Context): LiveTileKind {
+    val prefs = context.getSharedPreferences("standard_settings", Context.MODE_PRIVATE)
+    val clockPackages = setOf(
+        "com.google.android.deskclock",
+        "com.android.deskclock",
+        "com.sec.android.app.clockpackage",
+        "com.samsung.android.app.clockpackage"
+    )
+    val clockPkg = prefs.getString("live_clock_pkg", null)
+    val weatherPkg = prefs.getString("live_weather_pkg", null)
+    val batteryPkg = prefs.getString("live_battery_pkg", null)
+    return when {
+        packageName == clockPkg || packageName in clockPackages -> LiveTileKind.CLOCK
+        packageName == weatherPkg -> LiveTileKind.WEATHER
+        packageName == batteryPkg -> LiveTileKind.BATTERY
+        else -> LiveTileKind.NONE
+    }
+}
+
 /**
  * An app tile: heavy uppercase title top-left, mono caption bottom-left, optional trailing glyph.
  * In edit mode it jiggles and a tap cycles the size.
@@ -251,7 +272,8 @@ fun AppTile(
     onCycleSize: () -> Unit = {},
     style: TileStyle = if (app.isAccent) TileStyle.Accent else TileStyle.Outline,
     onLongPress: (() -> Unit)? = null,
-    liveEnabled: Boolean = true
+    liveEnabled: Boolean = true,
+    liveContent: List<String>? = null
 ) {
     val colors = LocalAppTheme.current
     val captionText = caption ?: TileCaptions.defaultFor(app.packageName, app.label)
@@ -357,9 +379,30 @@ fun AppTile(
             }
     ) {
         if (liveActive && liveStarted && flip.value <= 90f) {
-            LiveTile(
-                modifier = Modifier.fillMaxSize(),
-                frames = listOf(
+            val liveKind = remember(app.packageName, context) { detectLiveTileKind(app.packageName, context) }
+            val liveStrings: List<String>? = liveContent ?: when (liveKind) {
+                LiveTileKind.CLOCK -> clockFrames()
+                LiveTileKind.WEATHER -> weatherFrames(context)
+                LiveTileKind.BATTERY -> batteryFrames(context)
+                LiveTileKind.NONE -> null
+            }
+            val frames: List<@Composable () -> Unit> = if (liveStrings != null) {
+                liveStrings.map { text ->
+                    @Composable {
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Text(
+                                text = text,
+                                style = StandardType.headline((titleSize.value * 1.5f).sp),
+                                color = LocalTileColors.current.content,
+                                textAlign = TextAlign.Center,
+                                maxLines = 3,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                }
+            } else {
+                listOf(
                     front,
                     {
                         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -378,7 +421,11 @@ fun AppTile(
                             AppIcon(packageName = app.packageName, size = 56.dp)
                         }
                     }
-                ),
+                )
+            }
+            LiveTile(
+                modifier = Modifier.fillMaxSize(),
+                frames = frames,
                 intervalMs = 7000L,
                 flipEnabled = true
             )
