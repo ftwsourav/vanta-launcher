@@ -1,16 +1,30 @@
 package app.vanta.launcher.ui.screens.home
 
+import android.app.AlarmManager
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -23,19 +37,15 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.DropdownMenu
@@ -49,12 +59,14 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -67,45 +79,63 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.vanta.launcher.domain.model.AnimationStyle
 import app.vanta.launcher.domain.model.AppItem
+import app.vanta.launcher.domain.model.BatteryState
 import app.vanta.launcher.domain.model.HomeModule
 import app.vanta.launcher.domain.model.IconStyle
+import app.vanta.launcher.domain.model.MediaInfo
 import app.vanta.launcher.domain.model.SettingsState
 import app.vanta.launcher.domain.model.TileSize
+import app.vanta.launcher.domain.model.WeatherData
+import app.vanta.launcher.domain.model.display
 import app.vanta.launcher.ui.components.AppTile
 import app.vanta.launcher.ui.components.BatteryTile
+import app.vanta.launcher.ui.components.BrutalTextDialog
 import app.vanta.launcher.ui.components.FitHeadlineText
 import app.vanta.launcher.ui.components.FloatingSearchBar
+import app.vanta.launcher.ui.components.FolderPanel
+import app.vanta.launcher.ui.components.FolderPickerDialog
+import app.vanta.launcher.ui.components.FolderStore
+import app.vanta.launcher.ui.components.FolderTile
 import app.vanta.launcher.ui.components.HeadlineText
 import app.vanta.launcher.ui.components.LiveTile
+import app.vanta.launcher.ui.components.LocalEntranceTick
 import app.vanta.launcher.ui.components.LocalHapticsEnabled
 import app.vanta.launcher.ui.components.LocalTileColors
+import app.vanta.launcher.ui.components.LumiaEasing
+import app.vanta.launcher.ui.components.MonoLabel
 import app.vanta.launcher.ui.components.MusicWidget
 import app.vanta.launcher.ui.components.NotesWidget
-import app.vanta.launcher.ui.components.TaskItem
-import app.vanta.launcher.ui.components.TaskStore
-import app.vanta.launcher.ui.components.TasksWidget
-import app.vanta.launcher.ui.components.MonoLabel
 import app.vanta.launcher.ui.components.PeopleHubTile
 import app.vanta.launcher.ui.components.PlusCross
 import app.vanta.launcher.ui.components.QuickSettingsFab
 import app.vanta.launcher.ui.components.SwipeDownSearch
+import app.vanta.launcher.ui.components.TaskItem
+import app.vanta.launcher.ui.components.TaskStore
+import app.vanta.launcher.ui.components.TasksWidget
 import app.vanta.launcher.ui.components.Tile
+import app.vanta.launcher.ui.components.TileCaptions
 import app.vanta.launcher.ui.components.TileDefaults
 import app.vanta.launcher.ui.components.TileEntrance
+import app.vanta.launcher.ui.components.TileFolder
+import app.vanta.launcher.ui.components.TileGroup
+import app.vanta.launcher.ui.components.TileStyle
+import app.vanta.launcher.ui.components.VantaWidgetHost
 import app.vanta.launcher.ui.components.WeatherTile
+import app.vanta.launcher.ui.components.WidgetStore
+import app.vanta.launcher.ui.components.WidgetTile
 import app.vanta.launcher.ui.components.button
 import app.vanta.launcher.ui.components.liveTimeFormatted
 import app.vanta.launcher.ui.components.tilePress
 import app.vanta.launcher.ui.nav.StandardAppViewModel
+import app.vanta.launcher.ui.screens.focus.FocusSession
 import app.vanta.launcher.ui.theme.LocalAppTheme
 import app.vanta.launcher.ui.theme.StandardType
 import app.vanta.launcher.util.RefreshRate
-import app.vanta.launcher.domain.model.MediaInfo
+import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Date
 import java.util.Locale
-import androidx.compose.runtime.produceState
-import kotlinx.coroutines.delay
 
 private const val COLUMNS = 4
 private val RowHeight = 112.dp
@@ -154,6 +184,48 @@ internal fun packRows(apps: List<AppItem>): List<List<AppItem>> {
     return rows
 }
 
+/** null -> ink -> accent -> outline -> null, the edit-mode style square. */
+private fun nextTileStyle(current: String?): String? = when (current) {
+    null -> "ink"
+    "ink" -> "accent"
+    "accent" -> "outline"
+    else -> null
+}
+
+private fun isMorningHour(): Boolean = Calendar.getInstance().get(Calendar.HOUR_OF_DAY) in 5..9
+
+/** Frames of the morning brief, each in the "SAME PHONE. HIGHER STANDARDS." voice. */
+private fun morningBriefFrames(context: Context, weather: WeatherData?, settings: SettingsState, battery: BatteryState): List<String> {
+    val now = Date()
+    val date = SimpleDateFormat("EEEE · d MMM", Locale.ENGLISH).format(now)
+    val unit = settings.weatherUnit
+    val weatherLine = weather?.let {
+        "${unit.display(it.tempC)} ${it.condition} · ${it.location}\nH ${unit.display(it.highC)} · L ${unit.display(it.lowC)}"
+    } ?: "WEATHER · NOT LOADED YET"
+    val alarmAt = try {
+        (context.getSystemService(Context.ALARM_SERVICE) as AlarmManager).nextAlarmClock?.triggerTime
+    } catch (e: Exception) {
+        null
+    }
+    val alarmLine = alarmAt?.let {
+        "NEXT ALARM · " + SimpleDateFormat("EEE", Locale.ENGLISH).format(Date(it)) + " " +
+            android.text.format.DateFormat.getTimeFormat(context).format(Date(it))
+    } ?: "NO ALARM SET"
+    val batteryLine = "BATTERY ${battery.percent}%" + if (battery.isCharging) " · CHARGING" else ""
+    val quote = settings.quotes.takeIf { it.isNotEmpty() }?.let { it[Calendar.getInstance().get(Calendar.DAY_OF_YEAR) % it.size] }
+    return listOfNotNull(date, weatherLine, alarmLine, batteryLine, quote).map { it.uppercase() }
+}
+
+/** Callbacks the grid needs, bundled so the row renderer stays readable. */
+private class GridActions(
+    val launch: (String) -> Unit,
+    val enterEdit: () -> Unit,
+    val contextMenu: (AppItem?) -> Unit,
+    val addToFolder: (AppItem) -> Unit,
+    val editCaption: (AppItem) -> Unit,
+    val addWidget: () -> Unit
+)
+
 @Composable
 fun HomeScreen(
     viewModel: StandardAppViewModel,
@@ -174,6 +246,9 @@ fun HomeScreen(
     val nowPlaying by viewModel.nowPlaying.collectAsState()
     val battery by viewModel.battery.collectAsState()
     val editMode by viewModel.editMode.collectAsState()
+    val focusActive by FocusSession.active.collectAsState()
+    val focusApps by viewModel.focusApps.collectAsState()
+    val focusPkgs = remember(focusApps) { focusApps.map { it.packageName }.toSet() }
     val modules = settings.homeModules
     var contextMenuTile by remember { mutableStateOf<AppItem?>(null) }
     var showSwipeSearch by remember { mutableStateOf(false) }
@@ -182,6 +257,27 @@ fun HomeScreen(
         animationSpec = tween(200),
         label = "contentAlpha"
     )
+
+    // Folders: apps inside one leave the main grid; the open folder expands inline under its row.
+    val folderStore = remember { FolderStore(context) }
+    var folders by remember { mutableStateOf(folderStore.load()) }
+    val reloadFolders = { folders = folderStore.load() }
+    var expandedFolderId by remember { mutableStateOf<String?>(null) }
+    var renameFolder by remember { mutableStateOf<TileFolder?>(null) }
+    var folderPickerFor by remember { mutableStateOf<AppItem?>(null) }
+    var captionFor by remember { mutableStateOf<AppItem?>(null) }
+    val widgetStore = remember { WidgetStore(context) }
+    val widgets by widgetStore.widgets.collectAsState()
+    BackHandler(enabled = expandedFolderId != null) { expandedFolderId = null }
+
+    // Re-checked once a minute; only a flip of the boolean recomposes Home.
+    val morningHour by produceState(initialValue = isMorningHour()) {
+        while (true) {
+            delay(60_000)
+            value = isMorningHour()
+        }
+    }
+    val morning = settings.morningBrief && morningHour
 
     val hapticsOn = LocalHapticsEnabled.current
     val haptics = LocalHapticFeedback.current
@@ -192,6 +288,20 @@ fun HomeScreen(
         }
     }
     val launch: (String) -> Unit = { viewModel.launchApp(context, it) }
+    val actions = GridActions(
+        launch = launch,
+        enterEdit = enterEdit,
+        contextMenu = { contextMenuTile = it },
+        addToFolder = { folderPickerFor = it },
+        editCaption = { captionFor = it },
+        addWidget = {
+            try {
+                context.startActivity(Intent().setClassName(context, "app.vanta.launcher.ui.components.WidgetPickerActivity"))
+            } catch (e: Exception) {
+                Toast.makeText(context, "WIDGET PICKER UNAVAILABLE", Toast.LENGTH_SHORT).show()
+            }
+        }
+    )
     val fontScale = LocalDensity.current.fontScale.coerceIn(1f, 1.3f)
     val scrollState = rememberScrollState()
 
@@ -205,13 +315,21 @@ fun HomeScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .pointerInput(hapticsOn) { detectTapGestures(onLongPress = { enterEdit() }) }
+                .pointerInput(hapticsOn) {
+                    detectTapGestures(
+                        onLongPress = { enterEdit() },
+                        // A tap on bare paper closes the open folder.
+                        onTap = { expandedFolderId = null }
+                    )
+                }
                 .verticalScroll(scrollState)
                 .padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(TileDefaults.Gutter)
         ) {
             if (editMode) EditBar(onDone = { viewModel.setEditMode(false) })
             if (editMode) QuickOptions(settings = settings, pinned = pinned, viewModel = viewModel)
+
+            Collapsible(visible = focusActive) { FocusRow() }
 
             // Every top-level block turnstiles in with a continuous stagger index.
             var entrance = 0
@@ -225,20 +343,29 @@ fun HomeScreen(
             }
 
             TileEntrance(index = entrance++) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().alpha(contentAlpha).heightIn(min = 190.dp).height(IntrinsicSize.Min),
-                    horizontalArrangement = Arrangement.spacedBy(TileDefaults.Gutter)
-                ) {
-                    DayTile(modifier = Modifier.weight(1f).fillMaxHeight())
-                    WeatherTile(
-                        weather = weather,
-                        isLoading = weatherLoading,
-                        error = weatherError,
-                        forecast = forecast,
-                        modifier = Modifier.weight(1f).fillMaxHeight(),
-                        onRefresh = { viewModel.refreshWeather() },
-                        onSetLocation = onOpenSettings
-                    )
+                Crossfade(targetState = morning, animationSpec = tween(300, easing = LumiaEasing), label = "brief") { brief ->
+                    if (brief) {
+                        val frames = remember(weather, battery, settings.quotes, settings.weatherUnit) {
+                            morningBriefFrames(context, weather, settings, battery)
+                        }
+                        MorningBriefTile(frames = frames, modifier = Modifier.alpha(contentAlpha))
+                    } else {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().alpha(contentAlpha).heightIn(min = 190.dp).height(IntrinsicSize.Min),
+                            horizontalArrangement = Arrangement.spacedBy(TileDefaults.Gutter)
+                        ) {
+                            DayTile(modifier = Modifier.weight(1f).fillMaxHeight())
+                            WeatherTile(
+                                weather = weather,
+                                isLoading = weatherLoading,
+                                error = weatherError,
+                                forecast = forecast,
+                                modifier = Modifier.weight(1f).fillMaxHeight(),
+                                onRefresh = { viewModel.refreshWeather() },
+                                onSetLocation = onOpenSettings
+                            )
+                        }
+                    }
                 }
             }
 
@@ -249,7 +376,12 @@ fun HomeScreen(
                 )
             }
 
-            if (pinned.isEmpty()) {
+            val folderPkgs = remember(folders) { folders.flatMap { it.appPackages }.toSet() }
+            val gridApps = remember(pinned, folderPkgs) { pinned.filter { it.packageName !in folderPkgs } }
+            // While focusing only focus apps stay; folders survive when they hold at least one.
+            val shownFolders = if (focusActive) folders.filter { f -> f.appPackages.any { it in focusPkgs } } else folders
+
+            if (gridApps.isEmpty() && shownFolders.isEmpty()) {
                 TileEntrance(index = entrance++) {
                     Tile(
                         modifier = Modifier.fillMaxWidth().height(RowHeight * fontScale).button("Pin apps in drawer", onOpenDrawer),
@@ -257,27 +389,62 @@ fun HomeScreen(
                     ) {
                         val c = LocalTileColors.current.content
                         Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.SpaceBetween) {
-                            HeadlineText("PIN APPS", 32.sp, color = c)
-                            MonoLabel("IN DRAWER →", size = 10.sp, color = c)
+                            HeadlineText(if (focusActive) "FOCUS" else "PIN APPS", 32.sp, color = c)
+                            MonoLabel(if (focusActive) "NO FOCUS APPS · SET THEM ON THE FOCUS PAGE" else "IN DRAWER →", size = 10.sp, color = c)
                         }
                     }
                 }
             } else {
-                val rows = remember(pinned) { packRows(pinned) }
+                val rows = remember(gridApps) { packRows(gridApps) }
                 PinnedGrid(
                     rows = rows,
                     firstIndex = entrance,
                     pinned = pinned,
+                    folders = folders,
                     settings = settings,
                     editMode = editMode,
                     fontScale = fontScale,
                     viewModel = viewModel,
-                    launch = launch,
-                    enterEdit = enterEdit,
+                    actions = actions,
                     contextMenuTile = contextMenuTile,
-                    onContextMenuTile = { contextMenuTile = it }
+                    visibleFor = { !focusActive || it.packageName in focusPkgs }
                 )
                 entrance += rows.size
+                if (shownFolders.isNotEmpty()) {
+                    val byPkg = remember(allApps, pinned) { allApps.associateBy { it.packageName } + pinned.associateBy { it.packageName } }
+                    FolderSection(
+                        folders = shownFolders,
+                        firstIndex = entrance,
+                        resolve = { f -> f.appPackages.mapNotNull { byPkg[it] } },
+                        expandedId = expandedFolderId,
+                        settings = settings,
+                        editMode = editMode,
+                        fontScale = fontScale,
+                        onExpand = { expandedFolderId = it },
+                        onOpenApp = launch,
+                        onRename = { renameFolder = it },
+                        onDelete = { folderStore.deleteFolder(it.id); reloadFolders() },
+                        onRemoveApp = { f, pkg -> folderStore.removeFromFolder(f.id, pkg); reloadFolders() }
+                    )
+                    entrance += (shownFolders.size + 1) / 2
+                }
+            }
+
+            if (widgets.isNotEmpty()) {
+                TileEntrance(index = entrance++) {
+                    TileGroup("WIDGETS", modifier = Modifier.alpha(contentAlpha)) {
+                        widgets.forEach { entry ->
+                            key(entry.id) {
+                                WidgetTile(
+                                    entry = entry,
+                                    modifier = Modifier.fillMaxWidth().height(entry.heightDp.dp),
+                                    onRemove = { widgetStore.remove(entry.id); VantaWidgetHost.deleteId(context, entry.id) },
+                                    onResize = { widgetStore.update(it) }
+                                )
+                            }
+                        }
+                    }
+                }
             }
 
             val taskStore = remember { TaskStore(context) }
@@ -293,8 +460,10 @@ fun HomeScreen(
                 )
             }
 
-            val notesPrefs = remember { context.getSharedPreferences("standard_notes", android.content.Context.MODE_PRIVATE) }
-            var notes by remember { mutableStateOf(notesPrefs.getString("notes", "")?.split("\n")?.filter { it.isNotBlank() } ?: emptyList()) }
+            val notesPrefs = remember { context.getSharedPreferences("standard_notes", Context.MODE_PRIVATE) }
+            // Re-read on every foreground return: a finished focus session appends its own line.
+            val entranceTick = LocalEntranceTick.current
+            var notes by remember(entranceTick) { mutableStateOf(notesPrefs.getString("notes", "")?.split("\n")?.filter { it.isNotBlank() } ?: emptyList()) }
             TileEntrance(index = entrance++) {
                 NotesWidget(
                     notes = notes,
@@ -386,8 +555,128 @@ fun HomeScreen(
             SwipeDownSearch(
                 apps = allApps,
                 onLaunch = { pkg -> viewModel.launchApp(context, pkg) },
-                onDismiss = { showSwipeSearch = false }
+                onDismiss = { showSwipeSearch = false },
+                onDarkMode = { viewModel.setDarkMode(it) }
             )
+        }
+
+        renameFolder?.let { f ->
+            BrutalTextDialog(
+                title = "FOLDER NAME",
+                initial = f.name,
+                onSave = { folderStore.renameFolder(f.id, it.ifBlank { "FOLDER" }.uppercase()); reloadFolders(); renameFolder = null },
+                onDismiss = { renameFolder = null }
+            )
+        }
+        folderPickerFor?.let { app ->
+            FolderPickerDialog(
+                folders = folders,
+                onPick = { f -> folderStore.addToFolder(f.id, app.packageName); reloadFolders(); folderPickerFor = null },
+                onNew = { expandedFolderId = folderStore.createFolder(app.packageName).id; reloadFolders(); folderPickerFor = null },
+                onDismiss = { folderPickerFor = null }
+            )
+        }
+        captionFor?.let { app ->
+            BrutalTextDialog(
+                title = "CAPTION",
+                initial = app.caption ?: TileCaptions.defaultFor(app.packageName, app.label),
+                suggestions = remember(app.packageName) { TileCaptions.suggestions(app.packageName, app.label) },
+                onSave = { viewModel.setCaption(app.packageName, it.ifBlank { null }?.uppercase()); captionFor = null },
+                onReset = { viewModel.setCaption(app.packageName, null); captionFor = null },
+                onDismiss = { captionFor = null }
+            )
+        }
+    }
+}
+
+/** Vertical expand/collapse that leaves the tree (and the column gutter) once fully hidden. */
+@Composable
+private fun Collapsible(visible: Boolean, content: @Composable () -> Unit) {
+    val state = remember { MutableTransitionState(visible) }
+    state.targetState = visible
+    if (state.currentState || state.targetState) {
+        AnimatedVisibility(
+            visibleState = state,
+            enter = expandVertically(tween(220, easing = LumiaEasing)) + fadeIn(tween(220)),
+            exit = shrinkVertically(tween(200, easing = LumiaEasing)) + fadeOut(tween(150))
+        ) { content() }
+    }
+}
+
+/** Slim accent strip while a focus session runs: FOCUS · 24:31 LEFT, tap ends it. Ticks once a second. */
+@Composable
+private fun FocusRow(modifier: Modifier = Modifier) {
+    val colors = LocalAppTheme.current
+    val remaining by produceState(initialValue = FocusSession.remainingMillis()) {
+        while (true) {
+            value = FocusSession.remainingMillis()
+            if (value <= 0L && FocusSession.active.value) FocusSession.stop()
+            delay(1000)
+        }
+    }
+    val secs = remaining / 1000
+    val end = { FocusSession.stop() }
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(44.dp)
+            .background(colors.accent)
+            .tilePress(onTap = end, tilt = false)
+            .button("End focus session", end)
+            .padding(horizontal = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(Modifier.size(8.dp).background(colors.onAccent))
+        Spacer(Modifier.width(8.dp))
+        Text(
+            text = "FOCUS · %d:%02d LEFT".format(secs / 60, secs % 60),
+            style = StandardType.mono(11.sp, FontWeight.Bold).copy(fontFeatureSettings = "tnum"),
+            color = colors.onAccent,
+            maxLines = 1
+        )
+        Spacer(Modifier.weight(1f))
+        MonoLabel("TAP TO END", size = 10.sp, color = colors.onAccent, weight = FontWeight.Bold)
+    }
+}
+
+/** Full-width ink tile between 5 and 9: one mono line at a time, each peeking up (WP8 slide) every 6 s. */
+@Composable
+private fun MorningBriefTile(frames: List<String>, modifier: Modifier = Modifier) {
+    if (frames.isEmpty()) return
+    var index by remember { mutableIntStateOf(0) }
+    LaunchedEffect(frames.size) {
+        while (frames.size > 1) {
+            delay(6000)
+            index = (index + 1) % frames.size
+        }
+    }
+    val accent = LocalAppTheme.current.accent
+    Tile(modifier = modifier.fillMaxWidth().height(136.dp), style = TileStyle.Ink) {
+        val c = LocalTileColors.current.content
+        Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.SpaceBetween) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(8.dp).background(accent))
+                Spacer(Modifier.width(8.dp))
+                MonoLabel("MORNING BRIEF", size = 10.sp, color = c, weight = FontWeight.Bold)
+                Spacer(Modifier.weight(1f))
+                Text(
+                    text = "${index % frames.size + 1}/${frames.size}",
+                    style = StandardType.mono(10.sp).copy(fontFeatureSettings = "tnum"),
+                    color = c
+                )
+            }
+            Box(Modifier.fillMaxWidth().clipToBounds()) {
+                AnimatedContent(
+                    targetState = index % frames.size,
+                    transitionSpec = {
+                        (slideInVertically(tween(320, easing = LumiaEasing)) { it } + fadeIn(tween(200))) togetherWith
+                            (slideOutVertically(tween(200, easing = LumiaEasing)) { -it } + fadeOut(tween(120)))
+                    },
+                    label = "briefFrame"
+                ) { i ->
+                    MonoLabel(frames[i], size = 14.sp, color = c, weight = FontWeight.Bold, maxLines = 3, modifier = Modifier.fillMaxWidth())
+                }
+            }
         }
     }
 }
@@ -418,7 +707,7 @@ private fun EditBar(onDone: () -> Unit) {
         ) {
             Box(Modifier.size(8.dp).graphicsLayer { alpha = pulse.value }.background(colors.accent))
             MonoLabel("EDITING", size = 10.sp, color = colors.ink, weight = FontWeight.Bold, modifier = Modifier.graphicsLayer { alpha = pulse.value })
-            MonoLabel("// TAP: SIZE  ◀ ▶: MOVE  ✕: UNPIN  ■: ACCENT", size = 10.sp, color = colors.ink, modifier = Modifier.weight(1f))
+            MonoLabel("// TAP: SIZE  HOLD: MENU  ◀ ▶: MOVE  ■: STYLE", size = 10.sp, color = colors.ink, maxLines = 1, modifier = Modifier.weight(1f))
         }
         Spacer(Modifier.width(TileDefaults.Gutter))
         Box(
@@ -579,24 +868,93 @@ private fun NowPlayingMini(nowPlaying: MediaInfo?, modifier: Modifier = Modifier
     }
 }
 
+/**
+ * Folder rows (two 2-span tiles per row) with the open folder's panel inline under its row.
+ * The section's height tweens so the rows below glide down, no bounce.
+ */
+@Composable
+private fun FolderSection(
+    folders: List<TileFolder>,
+    firstIndex: Int,
+    resolve: (TileFolder) -> List<AppItem>,
+    expandedId: String?,
+    settings: SettingsState,
+    editMode: Boolean,
+    fontScale: Float,
+    onExpand: (String?) -> Unit,
+    onOpenApp: (String) -> Unit,
+    onRename: (TileFolder) -> Unit,
+    onDelete: (TileFolder) -> Unit,
+    onRemoveApp: (TileFolder, String) -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clipToBounds()
+            .animateContentSize(animationSpec = tween(260, easing = LumiaEasing)),
+        verticalArrangement = Arrangement.spacedBy(TileDefaults.Gutter)
+    ) {
+        folders.chunked(2).forEachIndexed { r, pair ->
+            TileEntrance(index = firstIndex + r) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().height(RowHeight * fontScale),
+                    horizontalArrangement = Arrangement.spacedBy(TileDefaults.Gutter)
+                ) {
+                    pair.forEach { f ->
+                        key(f.id) {
+                            FolderTile(
+                                folder = f,
+                                apps = resolve(f),
+                                expanded = expandedId == f.id,
+                                editMode = editMode,
+                                onTap = { onExpand(if (expandedId == f.id) null else f.id) },
+                                onLongPress = { onRename(f) },
+                                onDelete = { onDelete(f) },
+                                modifier = Modifier.weight(1f).fillMaxHeight()
+                            )
+                        }
+                    }
+                    if (pair.size == 1) Spacer(Modifier.weight(1f))
+                }
+            }
+            val open = pair.firstOrNull { it.id == expandedId }
+            if (open != null) {
+                key(open.id) {
+                    FolderPanel(
+                        folder = open,
+                        apps = resolve(open),
+                        iconStyle = settings.iconStyle,
+                        animationStyle = settings.animationStyle,
+                        editMode = editMode,
+                        onOpenApp = onOpenApp,
+                        onRename = { onRename(open) },
+                        onRemoveApp = { onRemoveApp(open, it) },
+                        onClose = { onExpand(null) }
+                    )
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun PinnedGrid(
     rows: List<List<AppItem>>,
     firstIndex: Int,
     pinned: List<AppItem>,
+    folders: List<TileFolder>,
     settings: SettingsState,
     editMode: Boolean,
     fontScale: Float,
     viewModel: StandardAppViewModel,
-    launch: (String) -> Unit,
-    enterEdit: () -> Unit,
+    actions: GridActions,
     contextMenuTile: AppItem?,
-    onContextMenuTile: (AppItem?) -> Unit
+    visibleFor: (AppItem) -> Boolean
 ) {
     val context = LocalContext.current
     var draggedIndex by remember { mutableStateOf(-1) }
     rows.forEachIndexed { r, row ->
-        renderRow(firstIndex + r, row, context, settings, editMode, fontScale, viewModel, launch, enterEdit, contextMenuTile, onContextMenuTile, pinned, draggedIndex) { draggedIndex = it }
+        renderRow(firstIndex + r, row, context, settings, editMode, fontScale, viewModel, actions, contextMenuTile, pinned, folders.isNotEmpty(), visibleFor, draggedIndex) { draggedIndex = it }
     }
 }
 
@@ -609,11 +967,11 @@ private fun renderRow(
     editMode: Boolean,
     fontScale: Float,
     viewModel: StandardAppViewModel,
-    launch: (String) -> Unit,
-    enterEdit: () -> Unit,
+    actions: GridActions,
     contextMenuTile: AppItem?,
-    onContextMenuTile: (AppItem?) -> Unit,
     pinned: List<AppItem>,
+    hasFolders: Boolean,
+    visibleFor: (AppItem) -> Boolean,
     draggedIndex: Int,
     onDraggedIndex: (Int) -> Unit
 ) {
@@ -627,6 +985,8 @@ private fun renderRow(
     )
     val tileHeightPx = with(LocalDensity.current) { targetHeight.toPx() }
     val currentTileHeightPx by rememberUpdatedState(tileHeightPx)
+    // Focus: a row with nothing left to show shrinks away; a partly hidden row lets its survivors grow.
+    Collapsible(visible = row.any(visibleFor)) {
     TileEntrance(index = r) {
         Row(
             modifier = Modifier.fillMaxWidth().height(animatedHeight.dp),
@@ -635,13 +995,19 @@ private fun renderRow(
                 row.forEach { app ->
                     key(app.packageName) {
                         val span = app.tileSize.span()
+                        val visible = visibleFor(app)
                         val animatedSpan by animateFloatAsState(
-                            targetValue = span.toFloat(),
-                            animationSpec = RefreshRate.springSpec(),
+                            targetValue = if (visible) span.toFloat() else 0.001f,
+                            animationSpec = if (visible) RefreshRate.springSpec() else tween(200, easing = LumiaEasing),
                             label = "span"
                         )
+                        val tileAlpha by animateFloatAsState(
+                            targetValue = if (visible) 1f else 0f,
+                            animationSpec = tween(200, easing = LumiaEasing),
+                            label = "tileAlpha"
+                        )
                         val cycle = { viewModel.setTileSize(app.packageName, app.tileSize.next()) }
-                        val open = { launch(app.packageName) }
+                        val open = { actions.launch(app.packageName) }
                         val index = pinned.indexOf(app)
                         val currentIndex by rememberUpdatedState(index)
                         Box(
@@ -649,6 +1015,7 @@ private fun renderRow(
                                 .weight(animatedSpan)
                                 .fillMaxHeight()
                                 .graphicsLayer {
+                                    alpha = tileAlpha
                                     if (draggedIndex == index) {
                                         scaleX = 1.1f
                                         scaleY = 1.1f
@@ -688,6 +1055,7 @@ private fun renderRow(
                                 animationStyle = settings.animationStyle,
                                 onTap = open,
                                 modifier = Modifier.fillMaxSize(),
+                                caption = app.caption,
                                 titleSize = when (span) {
                                     1 -> 22.sp
                                     2 -> 32.sp
@@ -696,45 +1064,62 @@ private fun renderRow(
                                 trailing = if (app.isAccent) "→" else null,
                                 editMode = editMode,
                                 onCycleSize = cycle,
-                                onLongPress = { if (editMode) enterEdit() else onContextMenuTile(app) }
+                                // AppTile only forwards this in edit mode; plain long-press is its shortcuts menu.
+                                onLongPress = { actions.contextMenu(app) },
+                                onCycleStyle = { viewModel.setTileStyle(app.packageName, nextTileStyle(app.tileStyle)) },
+                                onEditCaption = { actions.editCaption(app) }
                             )
                             if (editMode) EditControls(app = app, viewModel = viewModel)
                             DropdownMenu(
                                 expanded = contextMenuTile == app,
-                                onDismissRequest = { onContextMenuTile(null) }
+                                onDismissRequest = { actions.contextMenu(null) }
                             ) {
                                 DropdownMenuItem(
                                     text = { Text("RESIZE") },
                                     onClick = {
-                                        onContextMenuTile(null)
-                                        enterEdit()
+                                        actions.contextMenu(null)
+                                        actions.enterEdit()
                                     }
                                 )
                                 DropdownMenuItem(
                                     text = { Text("MOVE") },
                                     onClick = {
-                                        onContextMenuTile(null)
-                                        enterEdit()
+                                        actions.contextMenu(null)
+                                        actions.enterEdit()
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("EDIT CAPTION") },
+                                    onClick = {
+                                        actions.contextMenu(null)
+                                        actions.editCaption(app)
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text(if (hasFolders) "ADD TO FOLDER…" else "NEW FOLDER") },
+                                    onClick = {
+                                        actions.contextMenu(null)
+                                        actions.addToFolder(app)
                                     }
                                 )
                                 DropdownMenuItem(
                                     text = { Text("PIN/UNPIN") },
                                     onClick = {
-                                        onContextMenuTile(null)
+                                        actions.contextMenu(null)
                                         viewModel.togglePin(app)
                                     }
                                 )
                                 DropdownMenuItem(
                                     text = { Text("REMOVE") },
                                     onClick = {
-                                        onContextMenuTile(null)
+                                        actions.contextMenu(null)
                                         viewModel.unpin(app.packageName)
                                     }
                                 )
                                 DropdownMenuItem(
                                     text = { Text("APP INFO") },
                                     onClick = {
-                                        onContextMenuTile(null)
+                                        actions.contextMenu(null)
                                         context.startActivity(
                                             Intent(
                                                 Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
@@ -746,15 +1131,8 @@ private fun renderRow(
                                 DropdownMenuItem(
                                     text = { Text("ADD WIDGET") },
                                     onClick = {
-                                        onContextMenuTile(null)
-                                        Toast.makeText(context, "WIDGET PICKER — COMING SOON", Toast.LENGTH_SHORT).show()
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("EDIT DOCK") },
-                                    onClick = {
-                                        onContextMenuTile(null)
-                                        Toast.makeText(context, "DRAG APPS TO DOCK", Toast.LENGTH_SHORT).show()
+                                        actions.contextMenu(null)
+                                        actions.addWidget()
                                     }
                                 )
                             }
@@ -763,6 +1141,7 @@ private fun renderRow(
                 }
             }
         }
+    }
 }
 
 @Composable
@@ -772,14 +1151,8 @@ private fun EditControls(app: AppItem, viewModel: StandardAppViewModel) {
         val target = if (delta > 0) app.tileSize.next() else app.tileSize.prev()
         viewModel.setTileSize(app.packageName, target)
     }
+    // Top-left is the tile's own style square (Tile.kt); Home only adds unpin, move and resize.
     Box(modifier = Modifier.fillMaxSize()) {
-        EditButton(
-            label = if (app.isAccent) "Clear accent" else "Set accent",
-            modifier = Modifier.align(Alignment.TopStart),
-            onTap = { viewModel.setAccent(if (app.isAccent) null else app.packageName) }
-        ) {
-            Box(Modifier.size(10.dp).background(if (app.isAccent) colors.accent else colors.onInk))
-        }
         EditButton("Unpin", Modifier.align(Alignment.TopEnd), onTap = { viewModel.unpin(app.packageName) }) {
             MonoLabel("✕", size = 12.sp, color = colors.onInk, weight = FontWeight.Bold)
         }

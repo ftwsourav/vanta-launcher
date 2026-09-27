@@ -1,6 +1,5 @@
 ﻿package app.vanta.launcher.ui.components
 
-import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.LauncherApps
@@ -45,7 +44,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -59,6 +60,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
@@ -87,15 +89,21 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import app.vanta.launcher.data.remote.AppNotifSummary
+import app.vanta.launcher.data.remote.StandardMediaListener
 import app.vanta.launcher.domain.model.AnimationStyle
 import app.vanta.launcher.domain.model.AppItem
 import app.vanta.launcher.domain.model.IconStyle
+import app.vanta.launcher.domain.model.LiveTileMode
 import app.vanta.launcher.ui.theme.AppColors
 import app.vanta.launcher.ui.theme.LocalAppTheme
+import app.vanta.launcher.ui.theme.LocalSettings
 import app.vanta.launcher.ui.theme.StandardType
 import app.vanta.launcher.util.RefreshRate
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.absoluteValue
@@ -288,8 +296,17 @@ fun AppTile(
     trailing: String? = null,
     editMode: Boolean = false,
     onCycleSize: () -> Unit = {},
-    style: TileStyle = if (app.isAccent) TileStyle.Accent else TileStyle.Outline,
+    style: TileStyle = when (app.tileStyle) {
+        "ink" -> TileStyle.Ink
+        "accent" -> TileStyle.Accent
+        "outline" -> TileStyle.Outline
+        else -> if (app.isAccent) TileStyle.Accent else TileStyle.Outline
+    },
     onLongPress: (() -> Unit)? = null,
+    /** Edit mode: cycles Outline -> Ink -> Accent for this tile (wired by Home). */
+    onCycleStyle: (() -> Unit)? = null,
+    /** Edit mode: tapping the caption opens the caption editor (wired by Home). */
+    onEditCaption: (() -> Unit)? = null,
     liveEnabled: Boolean = true,
     liveContent: List<String>? = null
 ) {
@@ -299,14 +316,13 @@ fun AppTile(
     val turnstileRotation = remember { Animatable(0f) }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
-    val notifCount by produceState(initialValue = 0, app.packageName) {
-        value = try {
-            val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            nm.activeNotifications.count { it.packageName == app.packageName }
-        } catch (e: Exception) {
-            0
-        }
-    }
+    val hapticsOn = LocalHapticsEnabled.current
+    val haptics = LocalHapticFeedback.current
+    // This app's notification summary only, so a tile recomposes when its own count/text changes.
+    val summary by remember(app.packageName) {
+        StandardMediaListener.summaries.map { it[app.packageName] }.distinctUntilChanged()
+    }.collectAsState(initial = StandardMediaListener.summaries.value[app.packageName])
+    val notifCount = summary?.count ?: 0
     var menuExpanded by remember { mutableStateOf(false) }
     var shortcuts by remember(app.packageName) { mutableStateOf<List<ShortcutInfo>>(emptyList()) }
     LaunchedEffect(menuExpanded) {
@@ -338,8 +354,14 @@ fun AppTile(
         onTap()
     }
 
+    val editCaption: (() -> Unit)? = if (editMode && onEditCaption != null) {
+        {
+            if (hapticsOn) haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            onEditCaption()
+        }
+    } else null
     val front: @Composable () -> Unit = {
-        AppTileFace(app, iconStyle, captionText, titleSize, trailing)
+        AppTileFace(app, iconStyle, captionText, titleSize, trailing, editCaption)
     }
     val back: @Composable () -> Unit = {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -374,9 +396,14 @@ fun AppTile(
     }
 
     val liveActive = liveEnabled && !editMode
+    // Per-package start delay (0-3s) and period (7-11s) so the grid never moves in unison.
     val staggerDelay = remember(app.packageName) {
         app.packageName.hashCode().absoluteValue.toLong() % 3000L
     }
+    val liveIntervalMs = remember(app.packageName) {
+        7000L + app.packageName.hashCode().absoluteValue.toLong() % 4001L
+    }
+    val flipped by remember { derivedStateOf { flip.value > 90f } }
     val liveStarted by produceState(initialValue = false, app.packageName, liveActive) {
         if (liveActive) {
             delay(staggerDelay)
@@ -412,64 +439,90 @@ fun AppTile(
                 if (editMode) stateDescription = "Edit mode, long press to drag"
             }
     ) {
-        if (liveActive && liveStarted && flip.value <= 90f) {
-            val liveKind = remember(app.packageName, context) { detectLiveTileKind(app.packageName, context) }
-            val liveStrings: List<String>? = liveContent ?: when (liveKind) {
-                LiveTileKind.CLOCK -> clockFrames()
-                LiveTileKind.WEATHER -> weatherFrames(context)
-                LiveTileKind.BATTERY -> batteryFrames(context)
-                LiveTileKind.NONE -> null
-            }
-            val frames: List<@Composable () -> Unit> = if (liveStrings != null) {
-                liveStrings.map { text ->
-                    @Composable {
-                        Box(modifier = Modifier.fillMaxSize()) {
-                            FitHeadlineText(
-                                text = text,
-                                maxSize = (titleSize.value * 1.6f).sp,
-                                minSize = 14.sp,
-                                stacked = text.length > 12 && ' ' in text,
-                                color = LocalTileColors.current.content,
-                                modifier = Modifier.align(Alignment.BottomStart)
-                            )
-                        }
-                    }
-                }
-            } else {
-                listOf(
-                    front,
-                    {
-                        // Metro "name" frame: the label as big as the tile allows, never broken mid-word.
-                        Box(modifier = Modifier.fillMaxSize()) {
-                            Box(Modifier.align(Alignment.TopEnd).size(8.dp).background(colors.accent))
-                            FitHeadlineText(
-                                text = app.label.uppercase(),
-                                maxSize = (titleSize.value * 1.6f).sp,
-                                minSize = 14.sp,
-                                color = LocalTileColors.current.content,
-                                modifier = Modifier.align(Alignment.BottomStart)
-                            )
-                        }
-                    },
-                    {
-                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            AppIcon(packageName = app.packageName, size = 56.dp)
-                        }
-                    }
-                )
-            }
-            LiveTile(
-                modifier = Modifier.fillMaxSize(),
-                frames = frames,
-                intervalMs = 7000L,
-                flipEnabled = true
-            )
-        } else if (flip.value <= 90f) {
-            Tile(modifier = Modifier.fillMaxSize(), style = style, content = front)
-        } else {
-            Box(modifier = Modifier.fillMaxSize().graphicsLayer { rotationY = 180f }) {
+        val notif = summary
+        when {
+            flipped -> Box(modifier = Modifier.fillMaxSize().graphicsLayer { rotationY = 180f }) {
                 Tile(modifier = Modifier.fillMaxSize(), style = style, content = back)
             }
+            liveActive && liveStarted -> {
+                val liveKind = remember(app.packageName, context) { detectLiveTileKind(app.packageName, context) }
+                val liveStrings: List<String>? = liveContent ?: when (liveKind) {
+                    LiveTileKind.CLOCK -> clockFrames()
+                    LiveTileKind.WEATHER -> weatherFrames(context)
+                    LiveTileKind.BATTERY -> batteryFrames(context)
+                    LiveTileKind.NONE -> null
+                }
+                val frames: List<@Composable () -> Unit> = when {
+                    // WP: while something is waiting, the tile only alternates name <-> notification.
+                    notif != null -> listOf(front, { NotifFace(notif, titleSize, colors.accent) })
+                    liveStrings != null -> liveStrings.map { text ->
+                        @Composable {
+                            Box(modifier = Modifier.fillMaxSize()) {
+                                FitHeadlineText(
+                                    text = text,
+                                    maxSize = (titleSize.value * 1.6f).sp,
+                                    minSize = 14.sp,
+                                    stacked = text.length > 12 && ' ' in text,
+                                    color = LocalTileColors.current.content,
+                                    modifier = Modifier.align(Alignment.BottomStart)
+                                )
+                            }
+                        }
+                    }
+                    else -> listOf(
+                        front,
+                        {
+                            // Metro "name" frame: the label as big as the tile allows, never broken mid-word.
+                            Box(modifier = Modifier.fillMaxSize()) {
+                                Box(Modifier.align(Alignment.TopEnd).size(8.dp).background(colors.accent))
+                                FitHeadlineText(
+                                    text = app.label.uppercase(),
+                                    maxSize = (titleSize.value * 1.6f).sp,
+                                    minSize = 14.sp,
+                                    color = LocalTileColors.current.content,
+                                    modifier = Modifier.align(Alignment.BottomStart)
+                                )
+                            }
+                        },
+                        {
+                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                AppIcon(packageName = app.packageName, size = 56.dp)
+                            }
+                        }
+                    )
+                }
+                LiveFrames(
+                    frames = frames,
+                    mode = LocalSettings.current.liveTileMode,
+                    intervalMs = liveIntervalMs,
+                    modifier = Modifier.fillMaxSize(),
+                    style = style
+                )
+            }
+            else -> Tile(modifier = Modifier.fillMaxSize(), style = style, content = front)
+        }
+
+        if (editMode && onCycleStyle != null) {
+            // Style cycle affordance: a 22dp square in the corner filled with the NEXT style's colour.
+            val nextFill = when (style) {
+                TileStyle.Outline -> colors.ink
+                TileStyle.Ink -> colors.accent
+                TileStyle.Accent -> colors.tile
+            }
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .size(22.dp)
+                    .background(nextFill)
+                    .border(TileDefaults.Border, colors.ink)
+                    .pointerInput(onCycleStyle) {
+                        detectTapGestures {
+                            if (hapticsOn) haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            onCycleStyle()
+                        }
+                    }
+                    .semantics { contentDescription = "Tile style" }
+            )
         }
 
         if (notifCount > 0) {
@@ -534,13 +587,35 @@ fun AppTile(
     }
 }
 
+/** WP notification face: count big top-left, newest title and text at the foot, accent square top-right. */
+@Composable
+private fun NotifFace(summary: AppNotifSummary, titleSize: TextUnit, accent: Color) {
+    val c = LocalTileColors.current.content
+    val small = titleSize.value <= 22f
+    val title = summary.title.ifBlank { summary.text }
+    val text = if (summary.title.isBlank()) "" else summary.text
+    Box(modifier = Modifier.fillMaxSize()) {
+        Box(Modifier.align(Alignment.TopEnd).size(8.dp).background(accent))
+        Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.SpaceBetween) {
+            HeadlineText(summary.count.toString(), (titleSize.value * 1.6f).sp, color = c, maxLines = 1)
+            Column {
+                MonoLabel(title, size = 11.sp, color = c, weight = FontWeight.Bold, maxLines = 1)
+                if (!small && text.isNotBlank()) {
+                    MonoLabel(text, size = 10.sp, color = c.copy(alpha = 0.85f), maxLines = 2)
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun AppTileFace(
     app: AppItem,
     iconStyle: IconStyle,
     caption: String,
     titleSize: TextUnit,
-    trailing: String?
+    trailing: String?,
+    onEditCaption: (() -> Unit)? = null
 ) {
     val content = LocalTileColors.current.content
     Column(
@@ -583,7 +658,13 @@ private fun AppTileFace(
                 color = content.copy(alpha = 0.8f),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f, fill = false)
+                modifier = Modifier
+                    .weight(1f, fill = false)
+                    .then(
+                        if (onEditCaption != null) {
+                            Modifier.pointerInput(onEditCaption) { detectTapGestures { onEditCaption() } }
+                        } else Modifier
+                    )
             )
             if (trailing != null) {
                 Spacer(Modifier.width(8.dp))
@@ -686,69 +767,77 @@ private fun drawableToBitmap(drawable: Drawable, sizePx: Int): Bitmap {
     return bitmap
 }
 
-/** A tile that flips between N content frames on a timer. */
+/**
+ * The one frame switcher behind every live tile. FLIP: the tile turns 180° on Y with the next frame
+ * riding the mirrored back face, snapping to 0 as it lands. PEEK (WP8): the current face slides up
+ * and out while the next slides in from below, 420ms Lumia, clipped inside the border, then rests.
+ * Frames only change once a move has landed, so nothing recomposes per animation frame.
+ */
 @Composable
-fun LiveTileCycling(
+fun LiveFrames(
+    frames: List<@Composable () -> Unit>,
+    mode: LiveTileMode = LocalSettings.current.liveTileMode,
+    intervalMs: Long = 7000L,
     modifier: Modifier = Modifier,
-    style: TileStyle = TileStyle.Outline,
-    intervalMs: Long = 3500,
-    frames: List<@Composable () -> Unit>
+    style: TileStyle = TileStyle.Outline
 ) {
     if (frames.isEmpty()) return
-    val rotation = remember { Animatable(0f) }
+    val count = frames.size
     var frameIndex by remember { mutableIntStateOf(0) }
+    val progress = remember { Animatable(0f) }
 
-    LaunchedEffect(frames.size, intervalMs) {
+    LaunchedEffect(count, intervalMs, mode) {
+        progress.snapTo(0f)
+        if (count <= 1) return@LaunchedEffect
         while (true) {
             delay(intervalMs)
-            rotation.animateTo(90f, RefreshRate.Snappy)
-            frameIndex = (frameIndex + 1) % frames.size
-            rotation.snapTo(270f)
-            rotation.animateTo(360f, RefreshRate.springSpec())
-            rotation.snapTo(0f)
+            if (mode == LiveTileMode.PEEK) {
+                progress.animateTo(1f, tween(420, easing = LumiaEasing))
+            } else {
+                progress.animateTo(1f, RefreshRate.springSpec())
+            }
+            frameIndex = (frameIndex + 1) % count
+            progress.snapTo(0f)
         }
     }
 
-    Box(
-        modifier = modifier.graphicsLayer {
-            rotationY = rotation.value
-            cameraDistance = 16f * density
+    val current = frameIndex % count
+    val next = (current + 1) % count
+    if (mode == LiveTileMode.PEEK) {
+        val moving by remember { derivedStateOf { progress.value > 0f } }
+        val inner = TileDefaults.Padding - TileDefaults.Border
+        Tile(modifier = modifier, style = style, contentPadding = TileDefaults.Border) {
+            Box(modifier = Modifier.fillMaxSize().clipToBounds()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer { translationY = -size.height * progress.value }
+                        .padding(inner)
+                ) { frames[current]() }
+                if (moving) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer { translationY = size.height * (1f - progress.value) }
+                            .padding(inner)
+                    ) { frames[next]() }
+                }
+            }
         }
-    ) {
-        Tile(modifier = Modifier.fillMaxSize(), style = style) { frames[frameIndex]() }
-    }
-}
-
-/** A two-faced tile that flips on a timer. */
-@Composable
-fun LiveTile(
-    modifier: Modifier = Modifier,
-    style: TileStyle = TileStyle.Outline,
-    intervalMs: Long = 4000,
-    front: @Composable () -> Unit,
-    back: @Composable () -> Unit
-) {
-    val rotation = remember { Animatable(0f) }
-
-    LaunchedEffect(intervalMs) {
-        while (true) {
-            delay(intervalMs)
-            rotation.animateTo(180f, RefreshRate.springSpec())
-            rotation.snapTo(0f)
-        }
-    }
-
-    Box(
-        modifier = modifier.graphicsLayer {
-            rotationY = rotation.value
-            cameraDistance = 16f * density
-        }
-    ) {
-        if (rotation.value <= 90f) {
-            Tile(modifier = Modifier.fillMaxSize(), style = style, content = front)
-        } else {
-            Box(modifier = Modifier.fillMaxSize().graphicsLayer { rotationY = 180f }) {
-                Tile(modifier = Modifier.fillMaxSize(), style = style, content = back)
+    } else {
+        val showBack by remember { derivedStateOf { progress.value > 0.5f } }
+        Box(
+            modifier = modifier.graphicsLayer {
+                rotationY = 180f * progress.value
+                cameraDistance = 16f * density
+            }
+        ) {
+            if (showBack) {
+                Box(modifier = Modifier.fillMaxSize().graphicsLayer { rotationY = 180f }) {
+                    Tile(modifier = Modifier.fillMaxSize(), style = style) { frames[next]() }
+                }
+            } else {
+                Tile(modifier = Modifier.fillMaxSize(), style = style) { frames[current]() }
             }
         }
     }

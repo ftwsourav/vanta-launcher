@@ -11,6 +11,7 @@ import app.vanta.launcher.domain.model.HomeModule
 import app.vanta.launcher.domain.model.IconStyle
 import app.vanta.launcher.domain.model.RefreshRateMode
 import app.vanta.launcher.domain.model.WeatherUnit
+import app.vanta.launcher.domain.model.LiveTileMode
 import app.vanta.launcher.domain.model.SettingsState
 import app.vanta.launcher.domain.model.WeatherLocation
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -71,7 +72,12 @@ class SettingsRepositoryImpl(context: Context) : SettingsRepository {
                 ?: defaults.clockFormat,
             cinematicIntro = prefs.getBoolean(KEY_CINEMATIC_INTRO, defaults.cinematicIntro),
             glanceEnabled = prefs.getBoolean(KEY_GLANCE_ENABLED, defaults.glanceEnabled),
-            weatherLocation = WeatherLocation(name, lat, lon)
+            weatherLocation = WeatherLocation(name, lat, lon),
+            liveTileMode = prefs.getString(KEY_LIVE_TILE_MODE, null)?.let { n -> LiveTileMode.entries.firstOrNull { it.name == n } }
+                ?: defaults.liveTileMode,
+            panoramaUri = prefs.getString(KEY_PANORAMA_URI, null)?.takeIf { it.isNotBlank() },
+            morningBrief = prefs.getBoolean(KEY_MORNING_BRIEF, defaults.morningBrief),
+            nightstand = prefs.getBoolean(KEY_NIGHTSTAND, defaults.nightstand)
         )
     }
 
@@ -202,6 +208,26 @@ class SettingsRepositoryImpl(context: Context) : SettingsRepository {
         mutate { it.copy(motionTouch = enabled) }
     }
 
+    suspend fun setLiveTileMode(mode: LiveTileMode) {
+        prefs.edit().putString(KEY_LIVE_TILE_MODE, mode.name).apply()
+        mutate { it.copy(liveTileMode = mode) }
+    }
+
+    suspend fun setPanoramaUri(uri: String?) {
+        prefs.edit().putString(KEY_PANORAMA_URI, uri.orEmpty()).apply()
+        mutate { it.copy(panoramaUri = uri?.takeIf { u -> u.isNotBlank() }) }
+    }
+
+    suspend fun setMorningBrief(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_MORNING_BRIEF, enabled).apply()
+        mutate { it.copy(morningBrief = enabled) }
+    }
+
+    suspend fun setNightstand(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_NIGHTSTAND, enabled).apply()
+        mutate { it.copy(nightstand = enabled) }
+    }
+
     override suspend fun setWeatherLocation(location: WeatherLocation) {
         prefs.edit()
             .putString(KEY_WEATHER_NAME, location.name)
@@ -234,5 +260,9 @@ class SettingsRepositoryImpl(context: Context) : SettingsRepository {
         const val KEY_FIRST_RUN = "first_run"
         const val KEY_WEATHER_NAME = "weather_name"
         const val KEY_WEATHER_LATLON = "weather_latlon"
+        const val KEY_LIVE_TILE_MODE = "live_tile_mode"
+        const val KEY_PANORAMA_URI = "panorama_uri"
+        const val KEY_MORNING_BRIEF = "morning_brief"
+        const val KEY_NIGHTSTAND = "nightstand"
     }
 }

@@ -80,6 +80,7 @@ class AppRepositoryImpl(private val context: Context) : AppRepository {
         val accent = prefs.getString(KEY_ACCENT, null)?.takeIf { it.isNotBlank() }
         val sizes = loadPrefixed(KEY_TILE_SIZE_PREFIX) { runCatching { TileSize.valueOf(it) }.getOrNull() }
         val captions = loadPrefixed(KEY_CAPTION_PREFIX) { it.takeIf { c -> c.isNotBlank() } }
+        val styles = loadPrefixed(KEY_TILE_STYLE_PREFIX) { it.takeIf { c -> c in TILE_STYLES } }
 
         val all = installed.map { (pkg, info) ->
             AppItem(
@@ -89,7 +90,8 @@ class AppRepositoryImpl(private val context: Context) : AppRepository {
                 pinnedOrder = orderIndex[pkg] ?: Int.MAX_VALUE,
                 isAccent = pkg == accent,
                 tileSize = sizes[pkg] ?: TileSize.MEDIUM,
-                caption = captions[pkg]
+                caption = captions[pkg],
+                tileStyle = styles[pkg]
             )
         }.sortedBy { it.label.lowercase() }
         val byPkg = all.associateBy { it.packageName }
@@ -258,6 +260,14 @@ class AppRepositoryImpl(private val context: Context) : AppRepository {
         rebuild()
     }
 
+    override suspend fun setTileStyle(packageName: String, style: String?) {
+        val editor = prefs.edit()
+        if (style.isNullOrBlank() || style !in TILE_STYLES) editor.remove(KEY_TILE_STYLE_PREFIX + packageName)
+        else editor.putString(KEY_TILE_STYLE_PREFIX + packageName, style)
+        editor.apply()
+        rebuild()
+    }
+
     override suspend fun setQuickTools(packageNames: List<String>) {
         prefs.edit().putString(KEY_QUICK_TOOLS, packageNames.distinct().take(4).joinToString(",")).apply()
         rebuild()
@@ -313,6 +323,8 @@ class AppRepositoryImpl(private val context: Context) : AppRepository {
         const val KEY_ACCENT = "accent"
         const val KEY_TILE_SIZE_PREFIX = "tile_size_"
         const val KEY_CAPTION_PREFIX = "caption_"
+        const val KEY_TILE_STYLE_PREFIX = "tile_style_"
+        val TILE_STYLES = setOf("outline", "ink", "accent")
         const val KEY_QUICK_TOOLS = "quick_tools"
         const val KEY_FOCUS_APPS = "focus_apps"
     }

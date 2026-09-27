@@ -36,6 +36,17 @@ open class MainActivity : ComponentActivity() {
 
     protected val viewModel: StandardAppViewModel by viewModels { StandardAppViewModel.factory(container) }
 
+    /** Hosted widgets only receive updates while the host listens; scope it to the visible activity. */
+    override fun onStart() {
+        super.onStart()
+        app.vanta.launcher.ui.components.VantaWidgetHost.startListening(this)
+    }
+
+    override fun onStop() {
+        app.vanta.launcher.ui.components.VantaWidgetHost.stopListening()
+        super.onStop()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setTitle(R.string.app_name)

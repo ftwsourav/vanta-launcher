@@ -2,6 +2,7 @@ package app.vanta.launcher.ui.screens.settings
 
 import app.vanta.launcher.R
 import android.Manifest
+import android.app.NotificationManager
 import android.app.role.RoleManager
 import android.content.Context
 import android.content.Intent
@@ -9,10 +10,12 @@ import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.location.Geocoder
 import android.location.LocationManager
+import android.net.Uri
 import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
@@ -108,6 +111,7 @@ import app.vanta.launcher.domain.model.ClockFormat
 import app.vanta.launcher.domain.model.DarkMode
 import app.vanta.launcher.domain.model.HomeModule
 import app.vanta.launcher.domain.model.IconStyle
+import app.vanta.launcher.domain.model.LiveTileMode
 import app.vanta.launcher.domain.model.RefreshRateMode
 import app.vanta.launcher.domain.model.ThemeId
 import app.vanta.launcher.domain.model.WeatherUnit
@@ -200,6 +204,18 @@ fun SettingsScreen(viewModel: StandardAppViewModel, onClose: () -> Unit) {
     var systemExpanded by rememberSaveable { mutableStateOf(true) }
     var aboutExpanded by rememberSaveable { mutableStateOf(true) }
     var gesturesExpanded by rememberSaveable { mutableStateOf(true) }
+    var canvasExpanded by rememberSaveable { mutableStateOf(true) }
+    var nightExpanded by rememberSaveable { mutableStateOf(true) }
+
+    val focusPrefs = remember { context.getSharedPreferences("focus_session", Context.MODE_PRIVATE) }
+    var focusMinutes by remember { mutableIntStateOf(focusPrefs.getInt("default_minutes", 25)) }
+
+    val panoramaPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri != null) {
+            runCatching { context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+            viewModel.setPanoramaUri(uri.toString())
+        }
+    }
 
     val gesturesPrefs = remember { context.getSharedPreferences("standard_gestures", Context.MODE_PRIVATE) }
     var swipeUp by remember { mutableStateOf(gesturesPrefs.getString("swipe_up", "SEARCH") ?: "SEARCH") }
@@ -330,6 +346,8 @@ fun SettingsScreen(viewModel: StandardAppViewModel, onClose: () -> Unit) {
                     notifPreviews = it
                     prefs.edit().putBoolean("notif_previews", it).apply()
                 }
+                ToggleRow("MORNING BRIEF", settings.morningBrief) { viewModel.setMorningBrief(it) }
+                RowCaption("5–9 AM: DATE, WEATHER, ALARM, BATTERY, QUOTE ON ONE TILE")
                 SectionHeader("LIVE TILE CONTENT")
                 ToggleRow("WEATHER UPDATES", liveWeather) {
                     liveWeather = it
@@ -379,6 +397,14 @@ fun SettingsScreen(viewModel: StandardAppViewModel, onClose: () -> Unit) {
                     picker = PickerRequest("PIN AN APP", allApps.filter { !it.pinned }) { app ->
                         if (app != null) viewModel.setPinned(pinned.map { it.packageName } + app.packageName)
                     }
+                }
+                ActionRow("ADD WIDGET") {
+                    runCatching {
+                        context.startActivity(
+                            Intent().setClassName(context, "app.vanta.launcher.ui.components.WidgetPickerActivity")
+                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        )
+                    }.onFailure { Toast.makeText(context, "WIDGET PICKER UNAVAILABLE", Toast.LENGTH_SHORT).show() }
                 }
                 SectionHeader("ACCENT APPS")
                 val accentApps by viewModel.accentApps.collectAsState()
@@ -447,6 +473,15 @@ fun SettingsScreen(viewModel: StandardAppViewModel, onClose: () -> Unit) {
                         }
                     }
                 }
+                ValueRow("FOCUS SESSION LENGTH", "$focusMinutes MIN") {
+                    val next = when (focusMinutes) {
+                        25 -> 50
+                        50 -> 90
+                        else -> 25
+                    }
+                    focusMinutes = next
+                    focusPrefs.edit().putInt("default_minutes", next).apply()
+                }
                 SectionHeader("QUOTES")
                 settings.quotes.forEachIndexed { index, quote ->
                     ListEditRow(
@@ -497,6 +532,25 @@ fun SettingsScreen(viewModel: StandardAppViewModel, onClose: () -> Unit) {
             }
 
             CollapsibleSection(
+                title = "CANVAS",
+                expanded = canvasExpanded,
+                onToggle = { canvasExpanded = !canvasExpanded }
+            ) {
+                val hasPanorama = settings.panoramaUri != null
+                ValueRow("PANORAMA PHOTO", if (hasPanorama) "SET" else "NONE") {
+                    panoramaPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                }
+                AnimatedVisibility(
+                    visible = hasPanorama,
+                    enter = expandVertically(tween(220, easing = LumiaEasing)) + fadeIn(tween(220, easing = LumiaEasing)),
+                    exit = shrinkVertically(tween(160, easing = LumiaEasing)) + fadeOut(tween(160, easing = LumiaEasing))
+                ) {
+                    ActionRow("REMOVE PANORAMA", destructive = true) { viewModel.setPanoramaUri(null) }
+                }
+                RowCaption("ONE WIDE MONO PHOTO BEHIND ALL FOUR PAGES, MOVING AT A THIRD OF THE SWIPE.")
+            }
+
+            CollapsibleSection(
                 title = "MOTION",
                 expanded = motionExpanded,
                 onToggle = { motionExpanded = !motionExpanded }
@@ -509,6 +563,9 @@ fun SettingsScreen(viewModel: StandardAppViewModel, onClose: () -> Unit) {
                         AnimationStyle.SMOOTH -> "SMOOTH"
                     }
                 ) { viewModel.setAnimationStyle(settings.animationStyle.next()) }
+                ValueRow("LIVE TILE MOTION", if (settings.liveTileMode == LiveTileMode.FLIP) "FLIP" else "PEEK") {
+                    viewModel.setLiveTileMode(if (settings.liveTileMode == LiveTileMode.FLIP) LiveTileMode.PEEK else LiveTileMode.FLIP)
+                }
                 ValueRow("SMOOTHNESS", SmoothnessLabels[smoothness]) {
                     val next = (smoothness + 1) % SmoothnessLabels.size
                     smoothness = next
@@ -521,6 +578,16 @@ fun SettingsScreen(viewModel: StandardAppViewModel, onClose: () -> Unit) {
                 ToggleRow("MOTION TOUCH", motionTouch) { motionTouch = it; viewModel.setMotionTouch(it) }
                 ToggleRow("GLANCE (HOLD A TAB)", settings.glanceEnabled) { viewModel.setGlanceEnabled(it) }
                 ToggleRow("HAPTICS", settings.hapticsEnabled) { viewModel.setHaptics(it) }
+            }
+
+            CollapsibleSection(
+                title = "NIGHT",
+                expanded = nightExpanded,
+                onToggle = { nightExpanded = !nightExpanded }
+            ) {
+                ToggleRow("NIGHTSTAND GLANCE", settings.nightstand) { viewModel.setNightstand(it) }
+                RowCaption("WHILE CHARGING, 9 PM–6 AM, AFTER 30 S IDLE")
+                FocusSilenceRow()
             }
 
             CollapsibleSection(
@@ -633,6 +700,14 @@ fun SettingsScreen(viewModel: StandardAppViewModel, onClose: () -> Unit) {
                 AboutRow("FONTS", "SPACE GROTESK + JETBRAINS MONO (OFL)")
                 AboutRow("WEATHER", "OPEN-METEO")
                 AboutRow("PRIVACY", "NO TRACKING. NO CLOUD SYNC.")
+                ActionRow("WHAT'S NEW") {
+                    runCatching {
+                        context.startActivity(
+                            Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/ftwsourav/vanta-launcher/releases/latest"))
+                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        )
+                    }.onFailure { Toast.makeText(context, "NO BROWSER", Toast.LENGTH_SHORT).show() }
+                }
                 Spacer(Modifier.height(24.dp))
                 MonoLabel("SAME PHONE. HIGHER STANDARDS.", size = 10.sp, color = colors.muted)
                 Spacer(Modifier.height(10.dp))
@@ -994,6 +1069,12 @@ private fun ActionRow(label: String, destructive: Boolean = false, onClick: () -
         Spacer(Modifier.width(10.dp))
         MonoLabel(">", size = 16.sp, weight = FontWeight.Bold, color = tint)
     }
+}
+
+/** One-line mono explainer under a row; muted, never touches the row above. */
+@Composable
+private fun RowCaption(text: String) {
+    MonoLabel(text, size = 9.sp, color = LocalAppTheme.current.muted, modifier = Modifier.padding(top = 6.dp, bottom = 10.dp))
 }
 
 @Composable
@@ -1541,6 +1622,25 @@ private fun BatteryOptimizationRow() {
             intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
             launcher.launch(intent)
         } catch (e: Exception) { }
+    }
+}
+
+/** DND policy access so Focus can silence the phone; re-checked when the settings page returns. */
+@Composable
+private fun FocusSilenceRow() {
+    val context = LocalContext.current
+    val nm = remember { context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager }
+    var granted by remember { mutableStateOf(nm?.isNotificationPolicyAccessGranted == true) }
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        granted = nm?.isNotificationPolicyAccessGranted == true
+    }
+    LaunchedEffect(Unit) { granted = nm?.isNotificationPolicyAccessGranted == true }
+    if (granted) {
+        AboutRow("SILENCE DURING FOCUS", "GRANTED")
+    } else {
+        ActionRow("SILENCE DURING FOCUS · ALLOW") {
+            runCatching { launcher.launch(Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS)) }
+        }
     }
 }
 

@@ -83,4 +83,13 @@ object TileCaptions {
         byKeyword.firstOrNull { (re, _) -> re.containsMatchIn(haystack) }?.let { return it.second }
         return "OPEN"
     }
+
+    /** Three short captions for the caption editor: the default plus two more from the keyword table. */
+    fun suggestions(packageName: String, label: String): List<String> {
+        val haystack = (label + " " + packageName).lowercase()
+        val fromTable = byKeyword.filter { (re, _) -> re.containsMatchIn(haystack) }.map { it.second }
+        return (listOf(defaultFor(packageName, label)) + fromTable + listOf("OPEN", "LAUNCH", "GO"))
+            .distinct()
+            .take(3)
+    }
 }

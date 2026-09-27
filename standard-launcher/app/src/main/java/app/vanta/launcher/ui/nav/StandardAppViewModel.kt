@@ -226,6 +226,27 @@ class StandardAppViewModel(private val container: AppContainer) : ViewModel() {
         viewModelScope.launch { (container.settingsRepository as? app.vanta.launcher.data.local.SettingsRepositoryImpl)?.setMotionTouch(enabled) }
     }
 
+    fun setLiveTileMode(mode: app.vanta.launcher.domain.model.LiveTileMode) {
+        viewModelScope.launch { (container.settingsRepository as? app.vanta.launcher.data.local.SettingsRepositoryImpl)?.setLiveTileMode(mode) }
+    }
+
+    fun setPanoramaUri(uri: String?) {
+        viewModelScope.launch { (container.settingsRepository as? app.vanta.launcher.data.local.SettingsRepositoryImpl)?.setPanoramaUri(uri) }
+    }
+
+    fun setMorningBrief(enabled: Boolean) {
+        viewModelScope.launch { (container.settingsRepository as? app.vanta.launcher.data.local.SettingsRepositoryImpl)?.setMorningBrief(enabled) }
+    }
+
+    fun setNightstand(enabled: Boolean) {
+        viewModelScope.launch { (container.settingsRepository as? app.vanta.launcher.data.local.SettingsRepositoryImpl)?.setNightstand(enabled) }
+    }
+
+    /** style = "outline" | "ink" | "accent" | null (default). */
+    fun setTileStyle(packageName: String, style: String?) {
+        viewModelScope.launch { container.appRepository.setTileStyle(packageName, style) }
+    }
+
     fun setQuotes(quotes: List<String>) {
         viewModelScope.launch { container.settingsRepository.setQuotes(quotes) }
     }

@@ -18,6 +18,8 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -118,11 +120,29 @@ fun StandardApp(viewModel: StandardAppViewModel) {
     }
     var showSettings by rememberSaveable { mutableStateOf(false) }
     var showGlance by remember { mutableStateOf(false) }
+    // Nightstand: Glance shows itself while charging at night once the screen has been idle 30 s.
+    var glanceNightstand by remember { mutableStateOf(false) }
+    var lastTouchMillis by remember { mutableStateOf(System.currentTimeMillis()) }
+    val battery by viewModel.battery.collectAsState()
     var showSearch by remember { mutableStateOf(false) }
     var showOnboarding by remember { mutableStateOf(prefs.getBoolean("first_run", true)) }
     var showRecents by remember { mutableStateOf(false) }
     var showQuickSettings by remember { mutableStateOf(false) }
     val allApps by viewModel.allApps.collectAsState()
+
+    LaunchedEffect(settings.nightstand, battery.isCharging) {
+        if (!settings.nightstand || !battery.isCharging) return@LaunchedEffect
+        while (true) {
+            kotlinx.coroutines.delay(5_000)
+            val hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
+            val night = hour >= 21 || hour < 6
+            val idle = System.currentTimeMillis() - lastTouchMillis > 30_000
+            if (night && idle && !showGlance && !showSettings && !showSearch && !showRecents && !showQuickSettings && !showOnboarding) {
+                glanceNightstand = true
+                showGlance = true
+            }
+        }
+    }
 
     LaunchedEffect(Unit) {
         if (showSplash) {
@@ -231,6 +251,13 @@ fun StandardApp(viewModel: StandardAppViewModel) {
         modifier = Modifier
             .fillMaxSize()
             .background(colors.background)
+            .pointerInput(Unit) {
+                // Idle clock for nightstand mode: any touch, in the Initial pass, without consuming.
+                awaitEachGesture {
+                    awaitFirstDown(requireUnconsumed = false, pass = androidx.compose.ui.input.pointer.PointerEventPass.Initial)
+                    lastTouchMillis = System.currentTimeMillis()
+                }
+            }
             .then(edgeSwipeModifier)
             .then(backSwipeModifier)
             .pointerInput(activePage, showSettings, showSearch, showRecents, showQuickSettings, showOnboarding) {
@@ -244,6 +271,12 @@ fun StandardApp(viewModel: StandardAppViewModel) {
                 )
             }
     ) {
+        app.vanta.launcher.ui.components.PanoramaBackground(
+            uri = settings.panoramaUri,
+            pagerState = pagerState,
+            pageCount = 4,
+            modifier = Modifier.fillMaxSize()
+        )
         DriftingNoiseOverlay(Modifier.fillMaxSize())
 
         Column(modifier = Modifier.fillMaxSize()) {
@@ -338,13 +371,19 @@ fun StandardApp(viewModel: StandardAppViewModel) {
             SwipeDownSearch(
                 apps = allApps,
                 onLaunch = { pkg -> viewModel.launchApp(context, pkg) },
-                onDismiss = { showSearch = false }
+                onDismiss = { showSearch = false },
+                onDarkMode = { dark -> viewModel.setDarkMode(dark) }
             )
         }
 
         GlanceOverlay(
             visible = showGlance,
-            onDismiss = { showGlance = false }
+            nightstand = glanceNightstand,
+            onDismiss = {
+                showGlance = false
+                glanceNightstand = false
+                lastTouchMillis = System.currentTimeMillis()
+            }
         )
 
         if (showRecents) {

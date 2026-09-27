@@ -8,5 +8,7 @@ data class AppItem(
     val isAccent: Boolean = false,
     val tileSize: TileSize = TileSize.MEDIUM,
     /** User caption under the tile; null means "use the default for this package". */
-    val caption: String? = null
+    val caption: String? = null,
+    /** Per-tile look override: "outline", "ink" or "accent"; null means the default. */
+    val tileStyle: String? = null
 )

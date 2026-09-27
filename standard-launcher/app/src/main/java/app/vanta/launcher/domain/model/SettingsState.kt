@@ -23,7 +23,15 @@ data class SettingsState(
     val weatherLocation: WeatherLocation = WeatherLocation("London", 51.5074, -0.1278),
     val accentApps: List<String> = emptyList(),
     val accentMode: String = "manual",
-    val customAccent: Long = 0L
+    val customAccent: Long = 0L,
+    /** How live tiles change frames: WP flip, or the WP8 slide-up peek. */
+    val liveTileMode: LiveTileMode = LiveTileMode.FLIP,
+    /** Content URI of the panorama photo behind all four pages; null = none. */
+    val panoramaUri: String? = null,
+    /** Morning brief tile on Home between wake and 9 am. */
+    val morningBrief: Boolean = true,
+    /** Show the Glance screen automatically while charging at night. */
+    val nightstand: Boolean = false
 )
 
 object ThemeId {
@@ -37,5 +45,7 @@ object ThemeId {
 }
 
 enum class DarkMode { AUTO_SYSTEM, AUTO_TIME, LIGHT, DARK }
+
+enum class LiveTileMode { FLIP, PEEK }
 
 enum class RefreshRateMode { AUTO, HZ60, HZ90, HZ120, MAX }

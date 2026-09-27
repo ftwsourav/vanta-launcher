@@ -1,12 +1,14 @@
 package app.vanta.launcher.ui.screens.live
 
 import android.app.AlarmManager
+import android.app.Notification
 import android.app.NotificationManager
+import android.app.PendingIntent
+import android.app.RemoteInput
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.media.session.MediaSessionManager
-import android.os.Build
 import android.provider.AlarmClock
 import android.provider.Settings
 import androidx.compose.animation.AnimatedContent
@@ -34,16 +36,18 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -55,13 +59,17 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -70,11 +78,15 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.os.bundleOf
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import app.vanta.launcher.StandardApplication
 import app.vanta.launcher.data.remote.StandardMediaListener
@@ -85,6 +97,7 @@ import app.vanta.launcher.ui.components.LocalHapticsEnabled
 import app.vanta.launcher.ui.components.LocalTileColors
 import app.vanta.launcher.ui.components.LumiaEasing
 import app.vanta.launcher.ui.components.MonoLabel
+import app.vanta.launcher.ui.components.NotificationActions
 import app.vanta.launcher.ui.components.Tile
 import app.vanta.launcher.ui.components.TileDefaults
 import app.vanta.launcher.ui.components.TileEntrance
@@ -107,15 +120,18 @@ import kotlin.math.sign
 /** Set once the user taps GOT IT on the re-grant explainer; cleared again when the listener reconnects. */
 private const val RegrantKey = "notif_regrant_prompted"
 
+/** One active notification. [key] is the system key, so it survives a re-post and can be cancelled for real. */
 data class NotifItem(
+    val key: String,
     val packageName: String,
     val appName: String,
     val title: String,
     val text: String,
     val timestamp: Long,
-    val isActionable: Boolean
+    val actions: List<Notification.Action>,
+    val contentIntent: PendingIntent?
 ) {
-    val key: String get() = packageName + timestamp
+    val isActionable: Boolean get() = actions.isNotEmpty()
 }
 
 @Composable
@@ -147,6 +163,8 @@ fun LiveScreen(
     val listenerFeed by StandardMediaListener.active.collectAsState()
     LaunchedEffect(listenerFeed) {
         if (granted) notifications = try { loadActiveNotifications(context) } catch (e: Exception) { emptyList() }
+        // Once the system has really dropped a key it leaves the local set, so a re-posted notification shows again.
+        dismissed = dismissed.filterTo(HashSet()) { k -> listenerFeed.any { it.key == k } }
     }
 
     LifecycleResumeEffect(Unit) {
@@ -178,10 +196,17 @@ fun LiveScreen(
     }
 
     val visible = notifications.filter { it.key !in dismissed }
-    val dismiss = { n: NotifItem -> dismissed = dismissed + n.key }
+    // Hide at once, then ask the listener to cancel for real (no-op until the service wires NotificationActions).
+    val dismiss: (NotifItem) -> Unit = { n ->
+        dismissed = dismissed + n.key
+        NotificationActions.canceller?.invoke(n.key)
+    }
     val openNotif = { n: NotifItem ->
         dismiss(n)
-        launchApp(context, n.packageName)
+        val sent = n.contentIntent?.let { pi ->
+            try { pi.send(); true } catch (e: PendingIntent.CanceledException) { false }
+        } ?: false
+        if (!sent) launchApp(context, n.packageName)
     }
 
     Column(
@@ -225,16 +250,16 @@ fun LiveScreen(
             if (visible.isEmpty()) {
                 EmptyState(onOpenFocus, onOpenSearch)
             } else {
-                val active = visible.filter { it.packageName !in mutedApps }
-                val muted = visible.filter { it.packageName in mutedApps }
-                val actionable = active.filter { it.isActionable }
-                val regular = active.filter { !it.isActionable }
+                // Newest app first; items inside a group are already newest-first.
+                val byApp = visible.groupBy { it.packageName }.values.sortedByDescending { g -> g.first().timestamp }
+                val active = byApp.filter { it.first().packageName !in mutedApps }
+                val muted = byApp.filter { it.first().packageName in mutedApps }
 
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                     MonoLabel(
                         "CLEAR ALL",
                         modifier = Modifier
-                            .tilePress(onTap = { dismissed = dismissed + visible.map { it.key } }, tilt = false)
+                            .tilePress(onTap = { visible.forEach(dismiss) }, tilt = false)
                             .padding(4.dp),
                         size = 11.sp,
                         color = colors.accent,
@@ -242,27 +267,10 @@ fun LiveScreen(
                     )
                 }
 
-                if (actionable.isNotEmpty()) {
-                    SectionRule("ACTION REQUIRED", colors.accent)
-                    actionable.forEach { n ->
-                        key(n.key) {
-                            TileEntrance(index++) {
-                                NotifCard(
-                                    notif = n,
-                                    isActionable = true,
-                                    onOpen = { openNotif(n) },
-                                    onDismiss = { dismiss(n) },
-                                    onToggleMute = { toggleMute(n.packageName) }
-                                )
-                            }
-                        }
-                    }
-                }
-
-                if (regular.isNotEmpty()) {
+                if (active.isNotEmpty()) {
                     SectionRule("NOTIFICATIONS", colors.ink)
-                    regular.groupBy { it.packageName }.forEach { (pkg, group) ->
-                        key(pkg) {
+                    active.forEach { group ->
+                        key(group.first().packageName) {
                             TileEntrance(index++) {
                                 NotifGroup(group, isMuted = false, onOpen = openNotif, onDismiss = dismiss, onToggleMute = toggleMute)
                             }
@@ -272,8 +280,8 @@ fun LiveScreen(
 
                 if (muted.isNotEmpty()) {
                     SectionRule("MUTED", colors.ink.copy(alpha = 0.4f))
-                    muted.groupBy { it.packageName }.forEach { (pkg, group) ->
-                        key("muted:$pkg") {
+                    muted.forEach { group ->
+                        key("muted:" + group.first().packageName) {
                             TileEntrance(index++) {
                                 NotifGroup(group, isMuted = true, onOpen = openNotif, onDismiss = dismiss, onToggleMute = toggleMute)
                             }
@@ -546,24 +554,35 @@ private fun RegrantExplainerTile(
     }
 }
 
+/** Outline square button: 2dp stroke, mono uppercase label, Metro press without tilt. */
 @Composable
-private fun ActionButton(label: String, color: Color, modifier: Modifier, onTap: () -> Unit) {
+private fun ActionButton(
+    label: String,
+    color: Color,
+    modifier: Modifier,
+    onTap: () -> Unit,
+    height: Dp = 36.dp,
+    size: TextUnit = 11.sp
+) {
     Box(
         modifier = modifier
+            .heightIn(min = height)
             .tilePress(onTap = onTap, tilt = false)
             .strokeRect(2.dp) { color }
-            .padding(vertical = 10.dp, horizontal = 12.dp),
+            .padding(horizontal = 12.dp),
         contentAlignment = Alignment.Center
     ) {
-        MonoLabel(label, size = 12.sp, color = color, weight = FontWeight.Bold)
+        MonoLabel(label, size = size, color = color, weight = FontWeight.Bold, maxLines = 1)
     }
 }
 
-/** Notification card: tap opens, long-press shows an inline action strip, swipe past 40% dismisses. */
+/**
+ * Notification card: tap opens, long-press shows an inline action strip, swipe past 40% dismisses.
+ * The notification's own actions sit under the body; one with a RemoteInput turns into an inline reply.
+ */
 @Composable
 private fun NotifCard(
     notif: NotifItem,
-    isActionable: Boolean,
     isMuted: Boolean = false,
     onOpen: () -> Unit,
     onDismiss: () -> Unit,
@@ -573,12 +592,14 @@ private fun NotifCard(
     val context = LocalContext.current
     val haptics = LocalHapticFeedback.current
     val hapticsOn = LocalHapticsEnabled.current
-    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val scope = rememberCoroutineScope()
     var menu by remember { mutableStateOf(false) }
+    var replyTo by remember { mutableStateOf<Notification.Action?>(null) }
+    var status by remember { mutableStateOf<String?>(null) }
     val offsetX = remember { Animatable(0f) }
     var widthPx by remember { mutableIntStateOf(0) }
     var pastThreshold by remember { mutableStateOf(false) }
-    val hot = isActionable && !isMuted
+    val hot = notif.isActionable && !isMuted
     val ink = colors.onTile
     val pulse = rememberInfiniteTransition(label = "cardPulse").animateFloat(
         initialValue = 0.35f,
@@ -593,6 +614,13 @@ private fun NotifCard(
         if (over != pastThreshold) {
             pastThreshold = over
             if (over && hapticsOn) haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+        }
+    }
+    val fire = { action: Notification.Action ->
+        if (action.remoteInputs?.isNotEmpty() == true) {
+            replyTo = action
+        } else {
+            try { action.actionIntent.send() } catch (e: PendingIntent.CanceledException) { status = "COULDN'T SEND" }
         }
     }
 
@@ -680,6 +708,34 @@ private fun NotifCard(
                 Text(text = ">", style = StandardType.display(20.sp), color = colors.accent)
             }
         }
+
+        val reply = replyTo
+        when {
+            status == "SENT" -> MonoLabel("SENT", modifier = Modifier.padding(top = 10.dp), size = 11.sp, color = colors.accent, weight = FontWeight.Bold)
+            reply != null -> InlineReply(
+                action = reply,
+                ink = ink,
+                error = status,
+                onSent = {
+                    status = "SENT"
+                    replyTo = null
+                    scope.launch { delay(1200); onDismiss() }
+                },
+                onFailed = { status = "COULDN'T SEND" }
+            )
+            notif.actions.isNotEmpty() -> {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    notif.actions.take(3).forEach { a ->
+                        ActionButton(a.title.toString(), ink, Modifier.weight(1f), onTap = { fire(a) })
+                    }
+                }
+                if (status != null) MonoLabel(status!!, modifier = Modifier.padding(top = 8.dp), size = 11.sp, color = ink.copy(alpha = 0.6f), weight = FontWeight.Bold)
+            }
+        }
+
         AnimatedVisibility(
             visible = menu,
             enter = expandVertically(tween(220, easing = LumiaEasing)) + fadeIn(tween(220, easing = LumiaEasing)),
@@ -700,6 +756,70 @@ private fun NotifCard(
     }
 }
 
+/** Mono reply field with an ink caret and a solid "→" square; IME Send and the square both submit. */
+@Composable
+private fun InlineReply(
+    action: Notification.Action,
+    ink: Color,
+    error: String?,
+    onSent: () -> Unit,
+    onFailed: () -> Unit
+) {
+    val context = LocalContext.current
+    val colors = LocalAppTheme.current
+    var text by remember { mutableStateOf("") }
+    val focus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { focus.requestFocus() }
+    val send = {
+        if (text.isNotBlank()) {
+            val inputs = action.remoteInputs
+            val fillIn = Intent()
+            RemoteInput.addResultsToIntent(inputs, fillIn, bundleOf(inputs.first().resultKey to text.trim()))
+            try {
+                action.actionIntent.send(context, 0, fillIn)
+                onSent()
+            } catch (e: PendingIntent.CanceledException) {
+                onFailed()
+            }
+        }
+    }
+    Column(modifier = Modifier.fillMaxWidth().padding(top = 10.dp)) {
+        Row(modifier = Modifier.fillMaxWidth().height(36.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .strokeRect(2.dp) { ink }
+                    .padding(horizontal = 10.dp),
+                contentAlignment = Alignment.CenterStart
+            ) {
+                if (text.isEmpty()) MonoLabel("REPLY //", size = 11.sp, color = ink.copy(alpha = 0.4f), weight = FontWeight.Bold)
+                BasicTextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    modifier = Modifier.fillMaxWidth().focusRequester(focus),
+                    textStyle = StandardType.mono(12.sp).copy(color = ink),
+                    cursorBrush = SolidColor(ink),
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Send),
+                    keyboardActions = KeyboardActions(onSend = { send() })
+                )
+            }
+            Spacer(Modifier.width(8.dp))
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .tilePress(onTap = send, tilt = false)
+                    .background(ink),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(text = "→", style = StandardType.display(18.sp), color = colors.tile)
+            }
+        }
+        if (error != null) MonoLabel(error, modifier = Modifier.padding(top = 8.dp), size = 11.sp, color = ink.copy(alpha = 0.6f), weight = FontWeight.Bold)
+    }
+}
+
 @Composable
 private fun MenuAction(label: String, color: Color = LocalAppTheme.current.accent, onTap: () -> Unit) {
     MonoLabel(
@@ -711,21 +831,40 @@ private fun MenuAction(label: String, color: Color = LocalAppTheme.current.accen
     )
 }
 
+/** App name with count, an optional +N MORE toggle and a CLEAR square, over a 2dp rule. */
 @Composable
-private fun GroupHeader(packageName: String, label: String, trailing: String, dim: Boolean, onToggle: () -> Unit) {
+private fun GroupHeader(
+    packageName: String,
+    label: String,
+    more: String?,
+    dim: Boolean,
+    onToggle: () -> Unit,
+    onClear: () -> Unit
+) {
     val colors = LocalAppTheme.current
     val c = colors.ink.copy(alpha = if (dim) 0.4f else 1f)
-    Column(modifier = Modifier.fillMaxWidth().tilePress(onTap = onToggle, tilt = false)) {
+    Column(modifier = Modifier.fillMaxWidth()) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             AppIcon(packageName = packageName, size = 20.dp)
             Spacer(Modifier.width(8.dp))
             MonoLabel(label, modifier = Modifier.weight(1f), size = 11.sp, color = c, weight = FontWeight.Bold, maxLines = 1)
             Spacer(Modifier.width(12.dp))
-            MonoLabel(trailing, size = 11.sp, color = if (dim) c else colors.accent, weight = FontWeight.Bold)
+            if (more != null) {
+                MonoLabel(
+                    more,
+                    modifier = Modifier.tilePress(onTap = onToggle, tilt = false).padding(4.dp),
+                    size = 10.sp,
+                    color = if (dim) c else colors.accent,
+                    weight = FontWeight.Bold
+                )
+                Spacer(Modifier.width(8.dp))
+            }
+            ActionButton("CLEAR", c, Modifier, onClear, height = 26.dp, size = 9.sp)
         }
+        Spacer(Modifier.height(4.dp))
         Box(Modifier.fillMaxWidth().height(2.dp).background(c))
     }
 }
@@ -742,21 +881,23 @@ private fun NotifGroup(
     var expanded by remember(first.packageName) { mutableStateOf(false) }
     val shown = if (expanded || notifs.size == 1) notifs else notifs.take(1)
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        if (notifs.size > 1) {
-            GroupHeader(
-                packageName = first.packageName,
-                label = "${first.appName} (${notifs.size})",
-                trailing = if (expanded) "− ${notifs.size - 1} LESS" else "+ ${notifs.size - 1} MORE",
-                dim = isMuted,
-                onToggle = { expanded = !expanded }
-            )
-        }
+        GroupHeader(
+            packageName = first.packageName,
+            label = (if (isMuted) "${first.appName} · MUTED" else first.appName) + " (${notifs.size})",
+            more = when {
+                notifs.size <= 1 -> null
+                expanded -> "− LESS"
+                else -> "+ ${notifs.size - 1} MORE"
+            },
+            dim = isMuted,
+            onToggle = { expanded = !expanded },
+            onClear = { notifs.forEach(onDismiss) }
+        )
         shown.forEachIndexed { i, n ->
             key(n.key) {
                 val card: @Composable () -> Unit = {
                     NotifCard(
                         notif = n,
-                        isActionable = false,
                         isMuted = isMuted,
                         onOpen = { onOpen(n) },
                         onDismiss = { onDismiss(n) },
@@ -827,35 +968,29 @@ private fun listenerConnected(context: Context): Boolean = try {
 }
 
 private fun loadActiveNotifications(context: Context): List<NotifItem> {
-    return try {
-        val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
-        if (nm != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            // The bound listener sees every app; NotificationManager only ever returns our own.
-            val active = StandardMediaListener.active.value.takeIf { StandardMediaListener.connected.value }
-                ?: nm.activeNotifications.toList()
-            active.mapNotNull { sbn ->
-                try {
-                    val n = sbn.notification
-                    val pkg = sbn.packageName
-                    val pm = context.packageManager
-                    val appName = try {
-                        pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString()
-                    } catch (e: Exception) {
-                        pkg.substringAfterLast('.')
-                    }.uppercase()
-                    val extras = n.extras
-                    val title = extras.getString("android.title") ?: ""
-                    val text = extras.getString("android.text") ?: extras.getString("android.bigText") ?: ""
-                    val isActionable = n.actions != null && n.actions.isNotEmpty()
-                    NotifItem(pkg, appName, title, text, sbn.postTime, isActionable)
-                } catch (e: Exception) { null }
-            }.filter { it.title.isNotBlank() || it.text.isNotBlank() }
-        } else {
-            emptyList()
-        }
-    } catch (e: Exception) {
-        emptyList()
-    }
+    // The bound listener sees every app; NotificationManager only ever returns our own.
+    val active = StandardMediaListener.active.value.takeIf { StandardMediaListener.connected.value }
+        ?: (context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager)?.activeNotifications?.toList().orEmpty()
+    return active.mapNotNull { sbn ->
+        try {
+            val n = sbn.notification
+            val extras = n.extras
+            // getCharSequence: many apps post Spannables, which getString would silently drop.
+            val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString().orEmpty()
+            val text = (extras.getCharSequence(Notification.EXTRA_TEXT) ?: extras.getCharSequence(Notification.EXTRA_BIG_TEXT))?.toString().orEmpty()
+            if (title.isBlank() && text.isBlank()) return@mapNotNull null
+            NotifItem(
+                key = sbn.key,
+                packageName = sbn.packageName,
+                appName = resolveAppName(context, sbn.packageName),
+                title = title,
+                text = text,
+                timestamp = sbn.postTime,
+                actions = n.actions?.filter { it.actionIntent != null && !it.title.isNullOrBlank() }.orEmpty(),
+                contentIntent = n.contentIntent
+            )
+        } catch (e: Exception) { null }
+    }.sortedByDescending { it.timestamp }
 }
 
 private fun open(context: Context, intent: Intent) {

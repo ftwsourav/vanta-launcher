@@ -1,9 +1,6 @@
 package app.vanta.launcher.ui.components
 
 import android.graphics.Bitmap
-import androidx.compose.animation.Crossfade
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -18,12 +15,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.derivedStateOf
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -31,7 +22,6 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
@@ -39,13 +29,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.vanta.launcher.ui.theme.LocalAppTheme
-import app.vanta.launcher.util.RefreshRate
-import kotlinx.coroutines.delay
 
-/**
- * Cycles [frames] with a single 180° flip: the next frame rides on the (mirrored) back face, and the
- * rotation snaps to 0 the moment it lands so the hand-off is invisible. One soft spring, no bounce.
- */
+/** Outline tile cycling [frames] in the user's live-tile mode (flip or peek); see [LiveFrames]. */
 @Composable
 fun LiveTile(
     modifier: Modifier = Modifier,
@@ -53,52 +38,7 @@ fun LiveTile(
     intervalMs: Long = 6000L,
     flipEnabled: Boolean = true
 ) {
-    if (frames.isEmpty()) return
-    val rotation = remember { Animatable(0f) }
-    var frameIndex by remember { mutableIntStateOf(0) }
-    val showBack by remember { derivedStateOf { rotation.value > 90f } }
-
-    LaunchedEffect(frames.size, intervalMs, flipEnabled) {
-        if (frames.size <= 1) return@LaunchedEffect
-        while (true) {
-            delay(intervalMs)
-            if (flipEnabled) {
-                rotation.animateTo(180f, RefreshRate.springSpec())
-                frameIndex = (frameIndex + 1) % frames.size
-                rotation.snapTo(0f)
-            } else {
-                frameIndex = (frameIndex + 1) % frames.size
-            }
-        }
-    }
-
-    if (flipEnabled && frames.size > 1) {
-        Box(
-            modifier = modifier.graphicsLayer {
-                rotationY = rotation.value
-                cameraDistance = 16f * density
-            }
-        ) {
-            val front = frameIndex % frames.size
-            if (showBack) {
-                Box(Modifier.fillMaxSize().graphicsLayer { rotationY = 180f }) {
-                    Tile(modifier = Modifier.fillMaxSize(), style = TileStyle.Outline) {
-                        frames[(front + 1) % frames.size]()
-                    }
-                }
-            } else {
-                Tile(modifier = Modifier.fillMaxSize(), style = TileStyle.Outline) {
-                    frames[front]()
-                }
-            }
-        }
-    } else {
-        Tile(modifier = modifier, style = TileStyle.Outline) {
-            Crossfade(targetState = frameIndex, animationSpec = tween(300, easing = LumiaEasing), label = "liveFrame") { idx ->
-                frames[idx % frames.size]()
-            }
-        }
-    }
+    LiveFrames(frames = if (flipEnabled) frames else frames.take(1), intervalMs = intervalMs, modifier = modifier)
 }
 
 @Composable
@@ -164,7 +104,7 @@ fun MusicLiveTile(
             }
         }
     )
-    LiveTile(modifier = modifier, frames = frames, intervalMs = 6000L)
+    LiveFrames(frames = frames, intervalMs = 6000L, modifier = modifier)
 }
 
 @Composable
@@ -210,7 +150,7 @@ fun WeatherLiveTile(
             }
         }
     )
-    LiveTile(modifier = modifier, frames = frames, intervalMs = 6000L)
+    LiveFrames(frames = frames, intervalMs = 6000L, modifier = modifier)
 }
 
 @Composable
@@ -258,7 +198,7 @@ fun BatteryLiveTile(
             }
         }
     )
-    LiveTile(modifier = modifier, frames = frames, intervalMs = 8000L)
+    LiveFrames(frames = frames, intervalMs = 8000L, modifier = modifier)
 }
 
 private fun conditionToKind(condition: String): WeatherKind = when {

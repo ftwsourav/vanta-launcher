@@ -6,12 +6,19 @@ import android.content.SharedPreferences
 import android.media.RingtoneManager
 import android.os.SystemClock
 import android.provider.AlarmClock
+import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -21,6 +28,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -32,6 +40,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -70,6 +79,7 @@ import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
@@ -83,6 +93,7 @@ import app.vanta.launcher.ui.components.Barcode
 import app.vanta.launcher.ui.components.CalloutTile
 import app.vanta.launcher.ui.components.FitHeadlineText
 import app.vanta.launcher.ui.components.HeadlineText
+import app.vanta.launcher.ui.components.LocalEntranceTick
 import app.vanta.launcher.ui.components.LocalHapticsEnabled
 import app.vanta.launcher.ui.components.LocalTileColors
 import app.vanta.launcher.ui.components.LumiaEasing
@@ -95,6 +106,7 @@ import app.vanta.launcher.ui.components.TileEntrance
 import app.vanta.launcher.ui.components.TileStyle
 import app.vanta.launcher.ui.components.WeatherTile
 import app.vanta.launcher.ui.components.liveTimeFormatted
+import app.vanta.launcher.ui.components.tilePress
 import app.vanta.launcher.ui.nav.StandardAppViewModel
 import app.vanta.launcher.ui.theme.AppColors
 import app.vanta.launcher.ui.theme.LocalAppTheme
@@ -169,6 +181,12 @@ fun FocusScreen(viewModel: StandardAppViewModel, onOpenSettings: () -> Unit = {}
 
     var soundOn by remember { mutableStateOf(true) }
 
+    // Resume a session persisted before a process restart; idempotent, so first composition is enough.
+    remember(context) { FocusSession.restore(context) }
+    val active by FocusSession.active.collectAsState()
+    // The photo column folds away while a session runs so the focus rows take the full width.
+    val photoWeight by animateFloatAsState(if (active) 0f else LEFT, tween(200, easing = LumiaEasing), label = "photo")
+
     // Entrance stagger index; incremented per block so the sequence stays continuous when a block is hidden.
     var slot = 0
 
@@ -185,58 +203,75 @@ fun FocusScreen(viewModel: StandardAppViewModel, onOpenSettings: () -> Unit = {}
         }
 
         // SUN / 06 SEP + caption on the paper, weather tile beside it.
-        TileEntrance(slot++) {
-            Row(Modifier.fillMaxWidth().height(HeroHeight), horizontalArrangement = Arrangement.spacedBy(TileDefaults.Gutter)) {
-                val ink = LocalAppTheme.current.ink
-                Column(Modifier.weight(LEFT).fillMaxHeight(), verticalArrangement = Arrangement.SpaceBetween) {
-                    HeadlineText(liveTimeFormatted("EEE") + "\n" + liveTimeFormatted("dd MMM"), 52.sp, maxLines = 2)
-                    Column {
-                        MonoLabel("DISCIPLINE\nCREATES\nFREEDOM.", size = 12.sp, color = ink)
-                        MonoLabel("—", size = 12.sp, color = ink)
+        Collapsible(!active) {
+            TileEntrance(slot++) {
+                Row(Modifier.fillMaxWidth().height(HeroHeight), horizontalArrangement = Arrangement.spacedBy(TileDefaults.Gutter)) {
+                    val ink = LocalAppTheme.current.ink
+                    Column(Modifier.weight(LEFT).fillMaxHeight(), verticalArrangement = Arrangement.SpaceBetween) {
+                        HeadlineText(liveTimeFormatted("EEE") + "\n" + liveTimeFormatted("dd MMM"), 52.sp, maxLines = 2)
+                        Column {
+                            MonoLabel("DISCIPLINE\nCREATES\nFREEDOM.", size = 12.sp, color = ink)
+                            MonoLabel("—", size = 12.sp, color = ink)
+                        }
                     }
+                    WeatherTile(
+                        weather = weather,
+                        isLoading = weatherLoading,
+                        error = weatherError,
+                        forecast = forecast,
+                        modifier = Modifier.weight(RIGHT).fillMaxHeight(),
+                        quote = quote,
+                        onRefresh = viewModel::refreshWeather,
+                        onSetLocation = onOpenSettings
+                    )
                 }
-                WeatherTile(
-                    weather = weather,
-                    isLoading = weatherLoading,
-                    error = weatherError,
-                    forecast = forecast,
-                    modifier = Modifier.weight(RIGHT).fillMaxHeight(),
-                    quote = quote,
-                    onRefresh = viewModel::refreshWeather,
-                    onSetLocation = onOpenSettings
-                )
             }
         }
 
+        // Focus session: 25 / 50 / 90 / custom minutes; becomes the ink countdown while it runs.
+        TileEntrance(slot++) {
+            FocusSessionTile(active, Modifier.fillMaxWidth())
+        }
+
         // Stopwatch counts up; laps below.
-        TileEntrance(slot++) {
-            StopwatchTile(Modifier.fillMaxWidth(), prefs, soundOn) { soundOn = !soundOn }
+        Collapsible(!active) {
+            TileEntrance(slot++) {
+                StopwatchTile(Modifier.fillMaxWidth(), prefs, soundOn) { soundOn = !soundOn }
+            }
         }
 
-        TileEntrance(slot++) {
-            QuickTimerTile(Modifier.fillMaxWidth(), soundOn)
+        Collapsible(!active) {
+            TileEntrance(slot++) {
+                QuickTimerTile(Modifier.fillMaxWidth(), soundOn)
+            }
         }
 
-        TileEntrance(slot++) {
-            OpenClockButton(Modifier.fillMaxWidth())
+        Collapsible(!active) {
+            TileEntrance(slot++) {
+                OpenClockButton(Modifier.fillMaxWidth())
+            }
         }
 
         // Productivity suggestions: installed picks in a 2x2 grid; hidden when none are installed.
         if (suggestions.isNotEmpty()) {
-            TileEntrance(slot++) {
-                ProductivitySuggestionsTile(context, viewModel, suggestions, Modifier.fillMaxWidth())
+            Collapsible(!active) {
+                TileEntrance(slot++) {
+                    ProductivitySuggestionsTile(context, viewModel, suggestions, Modifier.fillMaxWidth())
+                }
             }
         }
 
         // Photo tile beside numbered rows 01..06.
         TileEntrance(slot++) {
             Row(Modifier.fillMaxWidth().height(RowsHeight), horizontalArrangement = Arrangement.spacedBy(TileDefaults.Gutter)) {
-                PhotoTile(
-                    uri = imageUri,
-                    modifier = Modifier.weight(LEFT).fillMaxHeight(),
-                    onPick = { pickImage.launch(arrayOf("image/*")) },
-                    onClear = clearImage
-                )
+                if (photoWeight > 0.01f) {
+                    PhotoTile(
+                        uri = imageUri,
+                        modifier = Modifier.weight(photoWeight).fillMaxHeight(),
+                        onPick = { pickImage.launch(arrayOf("image/*")) },
+                        onClear = clearImage
+                    )
+                }
                 Column(Modifier.weight(RIGHT).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (focusApps.isEmpty()) {
                         Tile(Modifier.fillMaxSize().button("Open drawer", onOpenDrawer), onClick = onOpenDrawer) {
@@ -287,32 +322,216 @@ fun FocusScreen(viewModel: StandardAppViewModel, onOpenSettings: () -> Unit = {}
         }
 
         // Crosshair quote tile (opens Settings) and the barcode mantra.
-        TileEntrance(slot++) {
-            Row(Modifier.fillMaxWidth().height(FooterHeight), horizontalArrangement = Arrangement.spacedBy(TileDefaults.Gutter)) {
-                Tile(
-                    modifier = Modifier.weight(RIGHT).fillMaxHeight().button("Open settings", onOpenSettings),
-                    style = TileStyle.Ink,
-                    onClick = onOpenSettings
-                ) {
-                    val c = LocalTileColors.current.content
-                    Box(Modifier.fillMaxSize()) {
-                        Row(verticalAlignment = Alignment.Top) {
-                            Canvas(Modifier.size(40.dp)) {
-                                val stroke = 1.dp.toPx()
-                                drawLine(c, Offset(0f, center.y), Offset(size.width, center.y), stroke)
-                                drawLine(c, Offset(center.x, 0f), Offset(center.x, size.height), stroke)
+        Collapsible(!active) {
+            TileEntrance(slot++) {
+                Row(Modifier.fillMaxWidth().height(FooterHeight), horizontalArrangement = Arrangement.spacedBy(TileDefaults.Gutter)) {
+                    Tile(
+                        modifier = Modifier.weight(RIGHT).fillMaxHeight().button("Open settings", onOpenSettings),
+                        style = TileStyle.Ink,
+                        onClick = onOpenSettings
+                    ) {
+                        val c = LocalTileColors.current.content
+                        Box(Modifier.fillMaxSize()) {
+                            Row(verticalAlignment = Alignment.Top) {
+                                Canvas(Modifier.size(40.dp)) {
+                                    val stroke = 1.dp.toPx()
+                                    drawLine(c, Offset(0f, center.y), Offset(size.width, center.y), stroke)
+                                    drawLine(c, Offset(center.x, 0f), Offset(center.x, size.height), stroke)
+                                }
+                                Spacer(Modifier.width(14.dp))
+                                Column {
+                                    MonoLabel("A BETTER\nYOU IS\nA BRIGHTER\nTOMORROW.", size = 10.sp, color = c)
+                                    MonoLabel("—", size = 10.sp, color = c)
+                                }
                             }
-                            Spacer(Modifier.width(14.dp))
-                            Column {
-                                MonoLabel("A BETTER\nYOU IS\nA BRIGHTER\nTOMORROW.", size = 10.sp, color = c)
-                                MonoLabel("—", size = 10.sp, color = c)
+                            MonoLabel("SETTINGS →", size = 9.sp, color = c.copy(alpha = 0.8f), modifier = Modifier.align(Alignment.BottomEnd))
+                        }
+                    }
+                    BarcodeFooter(Modifier.weight(LEFT).fillMaxHeight())
+                }
+            }
+        }
+    }
+}
+
+/** Blocks that get out of the way while a session runs: shrink out in 200ms, expand back in 220ms. */
+@Composable
+private fun Collapsible(visible: Boolean, content: @Composable () -> Unit) {
+    AnimatedVisibility(
+        visible = visible,
+        enter = expandVertically(tween(220, easing = LumiaEasing)) + fadeIn(tween(220, easing = LumiaEasing)),
+        exit = shrinkVertically(tween(200, easing = LumiaEasing)) + fadeOut(tween(150, easing = LumiaEasing))
+    ) { content() }
+}
+
+private val SessionPresets = listOf(25, 50, 90)
+
+/**
+ * Idle: outline tile with 25 / 50 / 90 / CUSTOM squares. Running: ink tile with the mm:ss countdown,
+ * a 2dp accent rule draining left to right and a 1Hz accent blink; a tap ends it. Notifications are
+ * silenced through [FocusSession] when Do Not Disturb access is granted, else an ALLOW row links there.
+ */
+@Composable
+private fun FocusSessionTile(active: Boolean, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val accent = LocalAppTheme.current.accent
+    val hapticsOn = LocalHapticsEnabled.current
+    val haptics = LocalHapticFeedback.current
+    val minutes by FocusSession.minutes.collectAsState()
+    var remainingMs by remember { mutableLongStateOf(FocusSession.remainingMillis()) }
+    var customOpen by remember { mutableStateOf(false) }
+    var customText by remember { mutableStateOf("") }
+    var dndGranted by remember { mutableStateOf(FocusSession.dndGranted) }
+
+    // Every foreground return (e.g. back from the DND access screen) re-checks access and silences if newly granted.
+    val tick = LocalEntranceTick.current
+    LaunchedEffect(tick) {
+        dndGranted = FocusSession.dndGranted
+        if (dndGranted) FocusSession.silence()
+    }
+
+    // One frame-paced ticker, alive only while a session runs; ends the session at zero.
+    LaunchedEffect(active) {
+        if (!active) return@LaunchedEffect
+        while (true) {
+            withFrameMillis { }
+            remainingMs = FocusSession.remainingMillis()
+            if (remainingMs <= 0L) {
+                if (hapticsOn) haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                FocusSession.finish()
+                break
+            }
+        }
+    }
+
+    val openAccess = {
+        runCatching { context.startActivity(Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS)) }
+            .onFailure { Toast.makeText(context, "NO DND SETTINGS", Toast.LENGTH_SHORT).show() }
+        Unit
+    }
+    // Derived so composition only wakes when a digit changes; the rule and blink read the clock in draw.
+    val timeText by remember {
+        derivedStateOf {
+            val s = (remainingMs + 999L) / 1000L
+            "%02d:%02d".format(s / 60L, s % 60L)
+        }
+    }
+
+    Crossfade(targetState = active, animationSpec = tween(260, easing = LumiaEasing), label = "session") { running ->
+        if (running) {
+            val end = { FocusSession.stop() }
+            val totalMs = minutes * 60_000f
+            Tile(modifier = modifier.button("End focus session", end), style = TileStyle.Ink, onClick = end) {
+                val c = LocalTileColors.current.content
+                Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        MonoLabel("FOCUS SESSION · $minutes MIN", size = 10.sp, color = c.copy(alpha = 0.85f))
+                        Spacer(Modifier.weight(1f))
+                        // Blinks at 1Hz; the draw lambda reads the clock so nothing recomposes for it.
+                        Box(Modifier.size(8.dp).drawBehind { if ((remainingMs / 500L) % 2L == 0L) drawRect(accent) })
+                    }
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .drawBehind {
+                                // Drains left to right: elapsed time eats the rule from the left edge.
+                                val h = 2.dp.toPx()
+                                val f = (remainingMs / totalMs).coerceIn(0f, 1f)
+                                drawRect(accent, Offset(size.width * (1f - f), size.height - h), Size(size.width * f, h))
+                            }
+                            .padding(bottom = 10.dp)
+                    ) {
+                        DigitText(timeText, 56.sp, c, Modifier)
+                    }
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        MonoLabel("TAP TO END", size = 10.sp, color = c)
+                        Spacer(Modifier.weight(1f))
+                        if (dndGranted) MonoLabel("NOTIFICATIONS SILENCED", size = 9.sp, color = c.copy(alpha = 0.7f))
+                    }
+                    if (!dndGranted) AllowDndRow(c, openAccess)
+                }
+            }
+        } else {
+            Tile(modifier = modifier) {
+                val c = LocalTileColors.current.content
+                Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        MonoLabel("FOCUS SESSION", size = 11.sp, color = c, weight = FontWeight.Bold)
+                        Spacer(Modifier.weight(1f))
+                        MonoLabel(if (dndGranted) "SILENCES NOTIFICATIONS" else "MINUTES", size = 9.sp, color = c.copy(alpha = 0.7f))
+                    }
+                    Box(Modifier.fillMaxWidth().height(2.dp).background(c))
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(TileDefaults.Gutter)) {
+                        SessionPresets.forEach { m ->
+                            SquareChoice("$m", "MIN", Modifier.weight(1f)) {
+                                customOpen = false
+                                FocusSession.start(m)
                             }
                         }
-                        MonoLabel("SETTINGS →", size = 9.sp, color = c.copy(alpha = 0.8f), modifier = Modifier.align(Alignment.BottomEnd))
+                        SquareChoice("+", "CUSTOM", Modifier.weight(1f), selected = customOpen) { customOpen = !customOpen }
                     }
+                    AnimatedVisibility(
+                        visible = customOpen,
+                        enter = expandVertically(tween(220, easing = LumiaEasing)),
+                        exit = shrinkVertically(tween(150, easing = LumiaEasing))
+                    ) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                Modifier.weight(1f).border(2.dp, c).padding(horizontal = 10.dp, vertical = 12.dp),
+                                contentAlignment = Alignment.CenterStart
+                            ) {
+                                if (customText.isEmpty()) MonoLabel("MINUTES · 1–180", size = 11.sp, color = c.copy(alpha = 0.4f))
+                                BasicTextField(
+                                    value = customText,
+                                    onValueChange = { customText = it.filter(Char::isDigit).take(3) },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    textStyle = StandardType.mono(13.sp).copy(color = c, fontFeatureSettings = "tnum"),
+                                    cursorBrush = SolidColor(c),
+                                    singleLine = true,
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                                )
+                            }
+                            BrutalButton("START", Modifier, fillWidth = false) {
+                                customText.toIntOrNull()?.takeIf { it > 0 }?.let {
+                                    customOpen = false
+                                    FocusSession.start(it)
+                                }
+                            }
+                        }
+                    }
+                    if (!dndGranted) AllowDndRow(c, openAccess)
                 }
-                BarcodeFooter(Modifier.weight(LEFT).fillMaxHeight())
             }
+        }
+    }
+}
+
+/** "SILENCE NOTIFICATIONS · ALLOW →": opens the Do Not Disturb access screen. Its own press so it never ends the session. */
+@Composable
+private fun AllowDndRow(c: Color, onOpen: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().button("Allow Do Not Disturb access", onOpen).tilePress(onTap = onOpen, tilt = false),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        MonoLabel("SILENCE NOTIFICATIONS", size = 9.sp, color = c.copy(alpha = 0.85f))
+        Spacer(Modifier.weight(1f))
+        MonoLabel("ALLOW →", size = 9.sp, color = c, weight = FontWeight.Bold)
+    }
+}
+
+/** Square preset: big figure top-left, mono caption bottom-left; ink when [selected]. */
+@Composable
+private fun SquareChoice(big: String, caption: String, modifier: Modifier, selected: Boolean = false, onClick: () -> Unit) {
+    Tile(
+        modifier = modifier.aspectRatio(1f).button("$big $caption", onClick),
+        style = if (selected) TileStyle.Ink else TileStyle.Outline,
+        contentPadding = 8.dp,
+        onClick = onClick
+    ) {
+        val c = LocalTileColors.current.content
+        Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.SpaceBetween) {
+            HeadlineText(big, 28.sp, color = c, maxLines = 1)
+            MonoLabel(caption, size = 9.sp, color = c.copy(alpha = 0.85f))
         }
     }
 }

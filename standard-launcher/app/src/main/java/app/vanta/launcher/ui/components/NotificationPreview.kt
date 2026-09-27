@@ -35,6 +35,14 @@ import app.vanta.launcher.ui.theme.SpaceGrotesk
 import kotlinx.coroutines.delay
 import org.json.JSONObject
 
+/**
+ * Bridge from Compose to the bound notification listener, which is the only thing allowed to cancel
+ * another app's notification. StandardMediaListener.onListenerConnected sets [canceller]; null until then.
+ */
+object NotificationActions {
+    var canceller: ((String) -> Unit)? = null
+}
+
 private fun timeAgo(timestamp: Long, now: Long): String {
     val delta = (now - timestamp) / 1000
     return when {

@@ -1,5 +1,39 @@
 # Vanta — Progress & Changelog
 
+## v5.5 (2026-09-27) — "Hubs": live tiles, folders, focus, widgets
+
+### Live tiles
+- Tiles show their app's active notifications: count as a display numeral, newest title and text in mono, the 8 dp accent square. Small tiles show count and title only.
+- Badges come from the notification listener and update live; the old NotificationManager path (which only ever saw Vanta's own notifications) is gone.
+- Live tile motion setting: FLIP (WP7 Y-flip) or PEEK (WP8 slide-up), one shared frame switcher, per-tile periods so the grid never moves in unison.
+
+### Home
+- Tile folders, WP 8.1 style: a 2-span tile expands inline and pushes the rows down; create from a tile's context menu, rename with a brutalist dialog.
+- Morning brief: 5–9 am the first row becomes one Ink tile peeking through date, weather, next alarm, battery and a quote.
+- Focus session strip: while a session runs, non-focus tiles collapse and a 44 dp accent row counts down; tap to end.
+- Widgets section: any Android widget hosted inside an outline tile, resizable by span and height, removable; brutalist picker with bind and configure flow.
+- Editable composition: in edit mode a top-left square cycles a tile through Outline, Ink and Accent; tap the caption to edit it with suggestions.
+
+### Live page
+- Action buttons on cards; inline reply through RemoteInput with a mono field and a "→" send square; "SENT" then dismiss.
+- Swipe or CLEAR now cancels the notification system-wide via the listener.
+- Grouped by app with count, "+N MORE" and CLEAR per group.
+
+### Focus
+- Session tile with 25 / 50 / 90 / custom minutes; Ink countdown with a draining accent rule and a blinking square; Do Not Disturb on while it runs (with a one-tap policy-access row); survives a relaunch; appends "FOCUS · 25 MIN · 21:30" to your notes when it ends.
+
+### Search
+- Calculator (safe recursive-descent parser), unit conversion, contacts with CALL / MSG, settings panels (wifi, bluetooth, dnd, airplane, flashlight, hotspot, dark/light), then web.
+
+### Canvas and night
+- Panorama photo behind all four pages, mono-filtered, moving at a third of the swipe (Settings › Canvas).
+- Nightstand: Glance shows itself while charging between 21:00 and 06:00 after 30 s idle, dimmed, drifting to avoid burn-in.
+
+### Settings
+- New rows for everything above, plus WHAT'S NEW linking to the latest release.
+
+---
+
 ## v5.4 (2026-09-27) — "Turnstile": the Lumia motion pass
 
 ### Motion

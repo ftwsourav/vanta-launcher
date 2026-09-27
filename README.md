@@ -4,11 +4,21 @@
 
 > Good apps. Better days.
 
-[![Latest release v5.4](https://img.shields.io/badge/release-v5.4-D93A2B?style=flat-square)](https://github.com/ftwsourav/vanta-launcher/releases/latest)
+[![Latest release v5.5](https://img.shields.io/badge/release-v5.5-D93A2B?style=flat-square)](https://github.com/ftwsourav/vanta-launcher/releases/latest)
 ![Android 11+](https://img.shields.io/badge/android-11%2B-111111?style=flat-square)
 ![Kotlin · Compose](https://img.shields.io/badge/kotlin%20%C2%B7%20compose-ECE8DF?style=flat-square&labelColor=111111)
 
-**Current version: v5.4 "Turnstile"** — [download the APK](https://github.com/ftwsourav/vanta-launcher/releases/download/v5.4/Vanta-v5.4-release.apk) · [release notes](https://github.com/ftwsourav/vanta-launcher/releases/tag/v5.4) · [full changelog](PROGRESS_CHANGELOG.md)
+**Current version: v5.5 "Hubs"** — [download the APK](https://github.com/ftwsourav/vanta-launcher/releases/download/v5.5/Vanta-v5.5-release.apk) · [release notes](https://github.com/ftwsourav/vanta-launcher/releases/tag/v5.5) · [full changelog](PROGRESS_CHANGELOG.md)
+
+## What's new in 5.5
+- **Real live tiles**: with notification access, a tile shows its app's unread count and latest message, badges update the instant a notification lands, and tiles can peek (WP8 slide-up) instead of flip.
+- **Inline reply** on the Live page, action buttons on cards, and dismiss that really clears the notification.
+- **Focus session**: 25 / 50 / 90 minutes from the Focus page, Do Not Disturb on, non-focus tiles hidden on Home, logged to your notes when it ends.
+- **Tile folders** (WP 8.1 inline expand), a **morning brief** tile from 5 to 9 am, editable tile captions and per-tile Outline / Ink / Accent looks.
+- **Search that answers**: calculator, unit conversion, contacts with call and message, settings panels, then web.
+- **Widgets inside tiles** through a brutalist picker, resizable on the grid.
+- **Panorama**: one wide mono photo behind all four pages, moving at a third of the swipe.
+- **Nightstand**: the Glance clock shows itself while charging at night after 30 s idle.
 
 ## What's new in 5.4
 - Tiles turnstile in around the left edge every time you return to the launcher; apps reveal out of their own tile.

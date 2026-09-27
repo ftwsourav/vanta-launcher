@@ -21,6 +21,8 @@ interface AppRepository {
     suspend fun setTileSize(packageName: String, size: TileSize)
     /** Null or blank restores the default caption. */
     suspend fun setCaption(packageName: String, caption: String?)
+    /** "outline" | "ink" | "accent"; null or blank restores the default look. */
+    suspend fun setTileStyle(packageName: String, style: String?)
     suspend fun setQuickTools(packageNames: List<String>)
     suspend fun setFocusApps(packageNames: List<String>)
     /** Wipes pins, sizes, captions, accent, quick tools and focus list, then reseeds defaults. */
